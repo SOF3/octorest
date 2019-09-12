@@ -24,6 +24,7 @@ deploy:
   skip_cleanup: true
   github_token: $GH_TOKEN
   keep_history: true
+  local_dir: target/doc
   on:
     branch: master
     condition: $RELEASE_FLAG = --release
