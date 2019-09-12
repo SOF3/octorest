@@ -136,7 +136,7 @@ impl ToTokens for PathEntry {
         let name = self.method_name();
         let name = Ident::new(&name, Span::call_site());
         let summary = &self.operation.summary;
-        let description = &self.operation.description;
+        let description = self.operation.description.as_ref().map(|string| remove_doc_tests(string));
 
         let method = &self.method;
         let url = &self.path;
@@ -230,4 +230,21 @@ impl<'a> ToTokens for IdItem<'a> {
         };
         q.to_tokens(tokens)
     }
+}
+
+fn remove_doc_tests(string: &str) -> String {
+    let mut out = String::with_capacity(string.len());
+    let mut flag = true;
+    let mut last_pos = 0;
+    while let Some(pos) = string[last_pos..].find("```") {
+        let pos = last_pos + pos + 3;
+        out += &string[last_pos..pos];
+        if flag {
+            out += "text";
+        }
+        last_pos = pos;
+        flag = !flag;
+    }
+    out += &string[last_pos..];
+    out
 }
