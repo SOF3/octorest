@@ -136,7 +136,11 @@ impl ToTokens for PathEntry {
         let name = self.method_name();
         let name = Ident::new(&name, Span::call_site());
         let summary = &self.operation.summary;
-        let description = self.operation.description.as_ref().map(|string| remove_doc_tests(string));
+        let description = self
+            .operation
+            .description
+            .as_ref()
+            .map(|string| remove_doc_tests(string));
 
         let method = &self.method;
         let url = &self.path;
