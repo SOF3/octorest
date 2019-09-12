@@ -7,7 +7,7 @@ env:
   - RELEASE_FLAG=""
   - RELEASE_FLAG="--release"
   global:
-    secure: "crlyJROHoJr4i4EVS+E3ecBGUosL+hwQIYHoroJ5B6M8ROUpPb8yTERSd/eaCEoSmsbuop4d11LVOtYUusSXrhEtweuLsMyvZ3DsVBZzT86iRjDxJbb2bb4gzAt71LOrSu07G+zYNxxqTnbJWoVKYaalrjKT/1uztvXHfHrCZ43p77fdiATfCzNGvI71aC5E04O48bXoBL/Fme+oagF+IqxtuOCkNBdDmd8JfLpziIgGK5YOeYa3Ix2Uydy7wQK5igeqosgNq+l7Z7NNCM46rFx3nLfGC5/gIKh3A4QpEdX2X+Asw2s62jn5M4lJ4/HYbl/qRALqntjWCY7MR4P4KJBbfcH1zTFL+GxQroPh0KlDLN/uw5dx5UmdLzSNPdUedaifBMNYB1w0I2t2bH6qJV8SW2Xbgqu2DPi0+Hh7hV8Z+50SyDxF/BbgziAIGqZe6tD+z6NQLCdZsBoXS/4PtY2EzlAGHijofdVwryYYYBGmnoMpG1ebTrnnh2mc3VB7Hm9BK6r3BrtBIRposRksbuc6dMR0UwJB27ruTuzPEBuM3GyvPRvrIqgs6TrM3C7oXDy48fgMh3wkGM+FQphfxqMWkdwKYs9AGJ4QYnoZCSJYQrd1dnKDLO+RlLLqTBqFTrir4PG4FgZS6UdU6Xn4MawsWvyBvFVc4iLtfu7L958="
+    secure: "B+xaKRytH8KfvYMnd37iQJbZLVPOqEiLdZj+bo/hzVP4rzs9gTUzyfo2wqvAgwN+BvlcZ+sgu51njw0N9PtmeevABsgOegbByC9imP3m9ZhrIK+HYUHxUsobRYH1FmGpxSDoGDO7T4u4+Fb+5duNN2aAZ/vge7ibBNja+Cj8ryZZsrnCvJVGZrG+9IuuWuM4mOv6+F3EERz2Cx9UjMW99EF4tnme1njNooNRGx2rMM9jJAyEht0HYRomivuc75i7hY7gQrzWHnI97JryT3rmebOI9hlC+zDIKtwfLq7rGFSCogswUzXyA2sHApxyLGrP1LDBEE+0CLnkYNfPH+HpI7PhwJPJFyRTNfjU7YWgKiViPTls6xR+6RUuOKa9RAnrd/FkOHzSEV07TnPa3xofYTf4UJTbpWckHJjQ1jmQlXE3HE+q1+AYf4YzYIcxocJdSAUniE50tRz7so/uTihYFW7uJ0EcQQpJyojd8VUOUYJT3oWYcswRwLrZA1JqL4wz+4x0mao8f/lI0JjVhFviXP44qAxPM5QGItSdXsaaFiOhdqHcaELpP5qkolurK3q7cgIQyvOTCmXcuGvujtkHcAMrT6+8Wv2Y3yRA/P6X4nyX4g0ySC/MuqJTwDaXpclsNzMlgXzjzCjXiD2NjVNKHuTIre77PzD8TIYWyyRu59E="
 install:
 - export RUSTFLAGS=$(cargo --version | grep nightly >/dev/null && echo "-Z external-macro-backtrace")
 - "rustup component add rustfmt --toolchain $(rustup show active-toolchain | cut -d\" \" -f 1)"
