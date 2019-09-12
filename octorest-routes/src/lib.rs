@@ -16,7 +16,7 @@
 use std::iter::IntoIterator;
 
 #[async_trait::async_trait]
-pub trait AbstractClient: Sized {
+pub trait AbstractClient: Sized + Send + Sync {
     type Response: AbstractResponse;
     async fn _internal_direct(&self, method: &str, url: &str) -> Self::Response;
     async fn _internal_data<R>(&self, method: &str, url: &str, data: R) -> Self::Response
@@ -24,7 +24,7 @@ pub trait AbstractClient: Sized {
         R: IntoIterator<Item = u8>;
 }
 
-pub trait AbstractResponse: Sized {
+pub trait AbstractResponse: Sized + Send + Sync {
     type Headers: IntoIterator<Item = (String, String)>;
 
     fn status(&self) -> u16;
