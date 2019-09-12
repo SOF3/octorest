@@ -64,7 +64,7 @@ impl RouteStore {
         };
         writeln!(w, "{}", prelude)?;
 
-        let impls = self.paths.iter().map(|path| path.tokenize());
+        let impls = &self.paths;
         let mut id_items = IdItem::Mod(String::new(), HashMap::new());
         for path in &self.paths {
             let mut cur_item = &mut id_items;
@@ -87,7 +87,8 @@ impl RouteStore {
             mod inner_impl { #(#impls)* }
             #(#id_items)*
         };
-        writeln!(w, "{}", paths)?;
+        let config = ts_fmt_lite::ConfigBuilder::default().build().unwrap();
+        ts_fmt_lite::print(paths, config, &mut w)?;
         Ok(())
     }
 }
@@ -105,6 +106,17 @@ impl PathEntry {
         self.operation.operation_id.to_snake_case()
     }
 
+    fn simple_name(&self) -> String {
+        use heck::SnakeCase;
+
+        self.operation
+            .operation_id
+            .split("/")
+            .last()
+            .unwrap()
+            .to_snake_case()
+    }
+
     fn method_path(&self) -> Vec<String> {
         use heck::SnakeCase;
 
@@ -117,13 +129,27 @@ impl PathEntry {
         *parts.last_mut().unwrap() = self.method_name();
         parts
     }
+}
 
-    fn tokenize(&self) -> TokenStream {
+impl ToTokens for PathEntry {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
         let name = self.method_name();
         let name = Ident::new(&name, Span::call_site());
-        quote! {
-            pub fn #name() {}
-        }
+        let summary = &self.operation.summary;
+        let description = &self.operation.description;
+
+        let method = &self.method;
+        let url = &self.path;
+
+        let q = quote! {
+            #[doc = #summary]
+            #[doc = ""]
+            #[doc = #description]
+            pub async fn #name<C: crate::AbstractClient>(client: &C) {
+                client._internal_direct(#method, #url).await;
+            }
+        };
+        q.to_tokens(tokens)
     }
 }
 
@@ -139,20 +165,67 @@ impl<'a> IdItem<'a> {
             _ => panic!("Operation path collided with operation name"),
         }
     }
+
+    fn trait_fn(&self) -> TokenStream {
+        let entry = match self {
+            IdItem::Oper(entry) => entry,
+            _ => return quote!(),
+        };
+        let simple = entry.simple_name();
+        let simple = Ident::new(&simple, Span::call_site());
+        let method = entry.method_name();
+        let method = Ident::new(&method, Span::call_site());
+        quote! {
+            async fn #simple(&self) {
+                crate::inner_impl::#method(self).await;
+            }
+        }
+    }
 }
 
 impl<'a> ToTokens for IdItem<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let q = match self {
             IdItem::Mod(name, items) => {
-                let items = items.iter().map(|(_, value)| value);
-                let name = Ident::new(name, Span::call_site());
-                quote! { pub mod #name { #(#items)* } }
+                use heck::CamelCase;
+
+                let delegates = items.iter().map(|(_, value)| value);
+                let ident = Ident::new(name, Span::call_site());
+
+                let trait_name = Ident::new(&name.to_camel_case(), Span::call_site());
+                let item_trait_fns = items.iter().map(|(_, value)| value.trait_fn());
+
+                quote! {
+                    /// API methods in the category <em>
+                    #[doc = #name]
+                    /// </em>
+                    ///
+                    /// <em>Required feature:
+                    #[doc = #name]
+                    /// </em>
+                    #[cfg(feature = #name)]
+                    pub mod #ident { #(#delegates)* }
+
+                    /// API client extension trait for
+                    #[doc = #name]
+                    /// -related methods
+                    ///
+                    /// <em>Required feature:
+                    #[doc = #name]
+                    /// </em>
+                    #[cfg(feature = #name)]
+                    #[async_trait::async_trait]
+                    pub trait #trait_name : crate::AbstractClient {
+                        #(#item_trait_fns)*
+                    }
+                }
             }
             IdItem::Oper(entry) => {
                 let entry_name = entry.method_name();
                 let entry_name = Ident::new(&entry_name, Span::call_site());
-                quote! { pub use crate::inner_impl::#entry_name; }
+                let last_name = entry.simple_name();
+                let last_name = Ident::new(&last_name, Span::call_site());
+                quote! { pub use crate::inner_impl::#entry_name as #last_name; }
             }
         };
         q.to_tokens(tokens)

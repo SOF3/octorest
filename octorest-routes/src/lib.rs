@@ -13,4 +13,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::iter::IntoIterator;
+
+#[async_trait::async_trait]
+pub trait AbstractClient: Sized {
+    type Response: AbstractResponse;
+    async fn _internal_direct(&self, method: &str, url: &str) -> Self::Response;
+    async fn _internal_data<R>(&self, method: &str, url: &str, data: R) -> Self::Response
+    where
+        R: IntoIterator<Item = u8>;
+}
+
+pub trait AbstractResponse: Sized {
+    type Headers: IntoIterator<Item = (String, String)>;
+
+    fn status(&self) -> u16;
+    fn headers(&self) -> Self::Headers;
+    fn body(&self) -> Vec<u8>;
+}
+
 include!(concat!(env!("OUT_DIR"), "/routes.rs"));

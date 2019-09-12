@@ -1,19 +1,29 @@
 language: rust
-rust: [stable, beta, nightly]
+rust:
+- stable
+- beta
+- nightly
 cache: cargo
 env:
   matrix:
-    - RELEASE_FLAG""
-    - RELEASE_FLAG"--release"
-
+  - RELEASE_FLAG=""
+  - RELEASE_FLAG="--release"
+  global:
+    secure: tX8RU2Nkg18XIR9Co0JRqktmk578Cu2rgPsUgVGhlFXacy42ztJNIRiEiWJ1R1YlMC4fQQfAWyi8uImsPRiNhGHATPqZTWNAnIR6VJ+AUNj7A9kXYkv5AkFV+2zDLONggus6x7gvAoivcIJWqyaQnM1OT7bQr+JMlEvaJpxcZJHKH/P8wUJnTaYhEULkVK9YTzMqD3WhbZnYhVm6fT7PuDJESsqFs4gQuhYPrAEt7DrknC9Hid9KZLcpVoO++nxSvH4uUl5jkwrlNqo5ec6mojjYfSjX++dcB1EcBn9Tuo3SZdO+KD3rgek0EVPfa+Y5tLdw4zpYp0NRejzWrLJoQQxElp4bOvtPzXfyWqZ/7H4T9wWpRbVaKLOMJC/mz4qgF5BavyvAbXitEh0VFe97r0Mi5yG+Pfw8bwEB3o+wqtW5LMvtTemLuxD8lIzKVVNwAuLXlLxg2ebT471/eO2iTgN3rccrV8YfxOHILkmumnb8aAKTM1Ew6Y6O57sJ0HuNuIV8P5xJzCIMbtlMndzQX4viEe9Q3NomhvwAbwH0X0pzUM0ifA4I5lDhJ3Pv2qfUClBGh8URkrbUcNOq7frLwXmIqq/mSXD1memzYvb9CEVzmnI7zh1jDJe1aLvjbgVEovw0geL0YvRaPj53rlQ+Pl2AqF3wBnSux89SENc6Kbc=
 install:
-  - "export RUSTFLAGS=$(cargo --version | grep nightly >/dev/null && echo \"-Z external-macro-backtrace\")"
-  - "rustup component add rustfmt --toolchain $(rustup show active-toolchain | cut -d\" \" -f 1)"
-
+- export RUSTFLAGS=$(cargo --version | grep nightly >/dev/null && echo "-Z external-macro-backtrace")
+- "rustup component add rustfmt --toolchain $(rustup show active-toolchain | cut -d\"\\t\" -f 1)"
 script:
-  - cargo fmt --all -- --check
-  - cargo check --all --verbose $RELEASE_FLAG
-  - cargo build --all --verbose $RELEASE_FLAG
-  - cargo test --all --verbose $RELEASE_FLAG
-  - cargo doc --all --verbose $RELEASE_FLAG
-
+- cargo fmt --all -- --check
+- cargo check --all --verbose $RELEASE_FLAG
+- cargo build --all --verbose $RELEASE_FLAG
+- cargo test --all --verbose $RELEASE_FLAG
+- cargo doc --all --verbose $RELEASE_FLAG
+deploy:
+  provider: pages
+  skip_cleanup: true
+  github_token: $GH_TOKEN
+  keep_history: true
+  on:
+    branch: master
+    condition: $RELEASE_FLAG = --release
