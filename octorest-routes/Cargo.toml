@@ -1,0 +1,25 @@
+[package]
+name = "octorest-routes"
+version = "0.1.0"
+authors = ["SOFe <sofe2038@gmail.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/SOF3/octorest.git"
+homepage = "https://github.com/SOF3/octorest"
+build = "build/main.rs"
+
+include = ["routes-repo.sha"]
+
+[build-dependencies]
+heck = "0.3.1"
+itertools = "0.8.0"
+proc-macro2 = "1.0"
+quote = "1.0"
+reqwest = "0.9.2"
+semver = "0.9.0"
+serde = {version = "1.0", features = ["std", "derive"]}
+serde_json = "1.0"
+zip = "0.5.3"
+
+[badges]
+travis-ci = {repository = "SOF3/octorest"}

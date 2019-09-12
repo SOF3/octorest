@@ -1,0 +1,17 @@
+[workspace]
+members = [".", "octorest-routes"]
+
+[package]
+name = "octorest"
+version = "0.1.0"
+authors = ["SOFe <sofe2038@gmail.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/SOF3/octorest.git"
+homepage = "https://github.com/SOF3/octorest"
+
+[dependencies]
+octorest-routes = {version = "0.1.0", path = "octorest-routes"}
+
+[badges]
+travis-ci = {repository = "SOF3/octorest"}
