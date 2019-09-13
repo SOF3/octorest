@@ -19,12 +19,12 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
-use crate::routes::RouteStore;
+use crate::writer::RouteStore;
 
 mod result;
 pub use result::*;
-mod routes;
 mod schema;
+mod writer;
 
 fn main() -> Result {
     println!("cargo:rerun-if-changed=ROUTES_TAG");
