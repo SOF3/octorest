@@ -17,7 +17,6 @@ script:
 - cargo doc --all --verbose $RELEASE_FLAG
 deploy:
   provider: pages
-  skip_cleanup: true
   github_token: $GH_TOKEN
   keep_history: true
   local_dir: target/doc
