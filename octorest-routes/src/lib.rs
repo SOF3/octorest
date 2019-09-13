@@ -18,17 +18,19 @@ use std::iter::IntoIterator;
 #[async_trait::async_trait]
 pub trait AbstractClient: Sized + Send + Sync {
     type Response: AbstractResponse;
+
     async fn _internal_direct(&self, method: &str, url: &str) -> Self::Response;
+
     async fn _internal_data<R>(&self, method: &str, url: &str, data: R) -> Self::Response
     where
-        R: IntoIterator<Item = u8>;
+        R: IntoIterator<Item = u8> + Send;
 }
 
-pub trait AbstractResponse: Sized + Send + Sync {
-    type Headers: IntoIterator<Item = (String, String)>;
-
+pub trait AbstractResponse: Sized + Send {
     fn status(&self) -> u16;
-    fn headers(&self) -> Self::Headers;
+
+    fn headers(&self) -> Box<dyn Iterator<Item = (String, String)>>;
+
     fn body(&self) -> Vec<u8>;
 }
 
