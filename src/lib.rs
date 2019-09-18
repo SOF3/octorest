@@ -21,18 +21,27 @@ pub use octorest_routes as routes;
 
 #[derive(Getters, Setters)]
 #[get = "pub"]
-pub struct Client {
-    client: reqwest::Client,
-    root_url: String,
+pub struct Client<H, S>
+where
+    H: AsRef<reqwest::Client>,
+    S: AsRef<str>,
+{
+    client: H,
+    root_url: S,
+    token: String,
 }
 
 #[async_trait]
-impl routes::AbstractClient for Client {
+impl<H, S> routes::AbstractClient for Client<H, S>
+where
+    H: AsRef<reqwest::Client> + Send + Sync,
+    S: AsRef<str> + Send + Sync,
+{
     type Response = ResponseWrapper;
 
-    async fn impl_send<I>(&self, _method: &str, _url: &str, headers: I) -> ResponseWrapper
+    async fn impl_send<I>(&self, _method: &str, _url: &str, _headers: I) -> ResponseWrapper
     where
-        I: Iterator<Item = (String, String)>,
+        I: Iterator<Item = (&'static str, String)> + Send,
     {
         unimplemented!()
     }
@@ -46,9 +55,14 @@ impl routes::AbstractClient for Client {
     ) -> ResponseWrapper
     where
         R: IntoIterator<Item = u8> + Send,
-        I: Iterator<Item = (String, String)>,
+        I: Iterator<Item = (&'static str, String)> + Send,
     {
         unimplemented!()
+    }
+
+    #[inline]
+    fn access_token(&self) -> &str {
+        self.token() // calling the setter; not a recursion
     }
 }
 
@@ -61,7 +75,7 @@ impl routes::AbstractResponse for ResponseWrapper {
     fn status(&self) -> u16 {
         unimplemented!()
     }
-    fn headers(&self) -> Box<dyn Iterator<Item = (String, String)>> {
+    fn headers(&self) -> Box<dyn Iterator<Item = (&'static str, String)>> {
         unimplemented!()
     }
     fn body(&self) -> Vec<u8> {

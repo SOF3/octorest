@@ -21,7 +21,7 @@ pub trait AbstractClient: Sized + Send + Sync {
 
     async fn impl_send<I>(&self, method: &str, url: &str, headers: I) -> Self::Response
     where
-        I: Iterator<Item = (&'static str, String)>;
+        I: Iterator<Item = (&'static str, String)> + Send;
 
     async fn impl_send_with_body<R, I>(
         &self,
@@ -32,7 +32,7 @@ pub trait AbstractClient: Sized + Send + Sync {
     ) -> Self::Response
     where
         R: IntoIterator<Item = u8> + Send,
-        I: Iterator<Item = (&'static str, String)>;
+        I: Iterator<Item = (&'static str, String)> + Send;
 
     fn access_token(&self) -> &str;
 }
