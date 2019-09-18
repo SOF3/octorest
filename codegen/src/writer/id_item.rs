@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This file handles aliased pub re-exports.
+
 use std::collections::HashMap;
 
 use proc_macro2::{Ident, Span, TokenStream};

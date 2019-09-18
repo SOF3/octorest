@@ -19,6 +19,9 @@ octorest-routes = {version = "0.1.0", path = "routes"}
 reqwest = {version = "0.10.0-alpha.0", git = "https://github.com/seanmonstar/reqwest"}
 static_assertions = "0.3.4"
 
+[dev-dependencies]
+dialoguer = "0.4.0"
+
 [badges]
 travis-ci = {repository = "SOF3/octorest"}
 
