@@ -1,0 +1,79 @@
+[package]
+name = "octorest-codegen"
+version = "0.1.0"
+authors = ["SOFe <sofe2038@gmail.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/SOF3/octorest.git"
+homepage = "https://github.com/SOF3/octorest"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+heck = "0.3.1"
+proc-macro2 = "1.0"
+quote = "1.0"
+semver = "0.9.0"
+serde = {version = "1.0", features = ["std", "derive"]}
+serde_json = "1.0"
+syn = "1.0"
+
+[features]
+# These features are extracted from the generated data
+# Due to cargo limitations, we need to manually update this list
+default = [
+	"activity",
+	"apps",
+	"checks",
+	"codes_of_conduct",
+	"emojis",
+	"gists",
+	"git",
+	"gitignore",
+	"interactions",
+	"issues",
+	"licenses",
+	"markdown",
+	"meta",
+	"migrations",
+	"oauth_authorizations",
+	"orgs",
+	"projects",
+	"pulls",
+	"rate_limit",
+	"reactions",
+	"repos",
+	"scim",
+	"search",
+	"teams",
+	"users",
+]
+activity = []
+apps = []
+checks = []
+codes_of_conduct = []
+emojis = []
+gists = []
+git = []
+gitignore = []
+interactions = []
+issues = []
+licenses = []
+markdown = []
+meta = []
+migrations = []
+oauth_authorizations = []
+orgs = []
+projects = []
+pulls = []
+rate_limit = []
+reactions = []
+repos = []
+scim = []
+search = []
+teams = []
+users = []
+
+[badges]
+travis-ci = {repository = "SOF3/octorest"}

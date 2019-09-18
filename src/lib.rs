@@ -15,28 +15,50 @@
 
 use async_trait::async_trait;
 use derive_more::From;
-use derive_new::new;
 use getset::{Getters, Setters};
 
 pub use octorest_routes as routes;
 
-#[derive(new, Getters, Setters)]
+#[derive(Getters, Setters)]
 #[get = "pub"]
 pub struct Client {
-    access_token: String,
-    #[new(value = "routes::SERVER_URL.into()")]
+    client: reqwest::Client,
     root_url: String,
+}
+
+impl Client {
+    pub fn new() -> Self {
+        Self::new_with_url(routes::SERVER_URL.into())
+    }
+
+    pub fn new_with_url(root_url: String) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            root_url,
+        }
+    }
+
+    pub fn new_with_reqwest(client: reqwest::Client) -> Self {
+        Self {
+            client,
+            root_url: routes::SERVER_URL.into(),
+        }
+    }
+
+    pub fn new_with_reqwest_url(client: reqwest::Client, root_url: String) -> Self {
+        Self { client, root_url }
+    }
 }
 
 #[async_trait]
 impl routes::AbstractClient for Client {
     type Response = ResponseWrapper;
 
-    async fn _internal_direct(&self, _method: &str, _url: &str) -> ResponseWrapper {
+    async fn impl_send(&self, _method: &str, _url: &str) -> ResponseWrapper {
         unimplemented!()
     }
 
-    async fn _internal_data<R>(&self, _method: &str, _url: &str, _data: R) -> ResponseWrapper
+    async fn impl_send_with_body<R>(&self, _method: &str, _url: &str, _body: R) -> ResponseWrapper
     where
         R: IntoIterator<Item = u8> + Send,
     {
@@ -46,7 +68,7 @@ impl routes::AbstractClient for Client {
 
 #[derive(From)]
 pub struct ResponseWrapper {
-    _inner: reqwest::r#async::Response,
+    _inner: reqwest::Response,
 }
 
 impl routes::AbstractResponse for ResponseWrapper {

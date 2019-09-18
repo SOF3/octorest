@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "octorest-routes"]
+members = [".", "abstract", "codegen", "routes"]
 
 [package]
 name = "octorest"
@@ -15,9 +15,63 @@ async-trait = "0.1.11"
 derive_more = "0.15.0"
 derive-new = "0.5.8"
 getset = "0.0.8"
-octorest-routes = {version = "0.1.0", path = "octorest-routes"}
-reqwest = "0.9.20"
+octorest-routes = {version = "0.1.0", path = "routes"}
+reqwest = {version = "0.10.0-alpha.0", git = "https://github.com/seanmonstar/reqwest"}
 static_assertions = "0.3.4"
 
 [badges]
 travis-ci = {repository = "SOF3/octorest"}
+
+[features]
+default = [
+	"activity",
+	"apps",
+	"checks",
+	"codes_of_conduct",
+	"emojis",
+	"gists",
+	"git",
+	"gitignore",
+	"interactions",
+	"issues",
+	"licenses",
+	"markdown",
+	"meta",
+	"migrations",
+	"oauth_authorizations",
+	"orgs",
+	"projects",
+	"pulls",
+	"rate_limit",
+	"reactions",
+	"repos",
+	"scim",
+	"search",
+	"teams",
+	"users",
+]
+activity = ["octorest-routes/activity"]
+apps = ["octorest-routes/apps"]
+checks = ["octorest-routes/checks"]
+codes_of_conduct = ["octorest-routes/codes_of_conduct"]
+emojis = ["octorest-routes/emojis"]
+gists = ["octorest-routes/gists"]
+git = ["octorest-routes/git"]
+gitignore = ["octorest-routes/gitignore"]
+interactions = ["octorest-routes/interactions"]
+issues = ["octorest-routes/issues"]
+licenses = ["octorest-routes/licenses"]
+markdown = ["octorest-routes/markdown"]
+meta = ["octorest-routes/meta"]
+migrations = ["octorest-routes/migrations"]
+oauth_authorizations = ["octorest-routes/oauth_authorizations"]
+orgs = ["octorest-routes/orgs"]
+projects = ["octorest-routes/projects"]
+pulls = ["octorest-routes/pulls"]
+rate_limit = ["octorest-routes/rate_limit"]
+reactions = ["octorest-routes/reactions"]
+repos = ["octorest-routes/repos"]
+scim = ["octorest-routes/scim"]
+search = ["octorest-routes/search"]
+teams = ["octorest-routes/teams"]
+users = ["octorest-routes/users"]
