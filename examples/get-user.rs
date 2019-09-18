@@ -13,8 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use octorest_abstract::{AbstractClient, AbstractResponse};
+use std::io;
 
-pub(crate) use octorest_abstract::internals::*;
+mod term;
 
-octorest_codegen::run!("latest.json");
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    use octorest::routes::Users;
+
+    let token = term::ask("Access token");
+    let client = octorest::Client::new();
+    client.get_authenticated().await;
+
+    Ok(())
+}

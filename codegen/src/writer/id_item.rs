@@ -44,7 +44,12 @@ impl<'a> IdItem<'a> {
         let simple = Ident::new(&simple, Span::call_site());
         let method = entry.method_name();
         let method = Ident::new(&method, Span::call_site());
+        let summary = &entry.operation.summary;
+        let description = &entry.operation.description;
         quote! {
+            #[doc = #summary]
+            #[doc = ""]
+            #[doc = #description]
             async fn #simple(&self) {
                 crate::inner_impl::#method(self).await;
             }

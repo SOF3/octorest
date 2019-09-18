@@ -15,10 +15,8 @@
 
 use std::io;
 
-pub type Result<T = ()> = io::Result<T>;
-
-pub use std::result::Result as ResultOf;
-
-pub fn map_err<E: std::error::Error + Send + Sync + 'static>(e: E) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, e)
+pub fn ask(query: &str) -> io::Result<String> {
+    dialoguer::PasswordInput::new()
+        .with_prompt(query)
+        .interact()
 }

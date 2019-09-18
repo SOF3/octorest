@@ -69,13 +69,15 @@ impl ToTokens for PathEntry {
 
         let method = &self.method;
         let url = &self.path;
+        let accept = "application/vnd.github.v3+json"; // TODO parse args
 
         let q = quote! {
             #[doc = #summary]
             #[doc = ""]
             #[doc = #description]
             pub async fn #name<C: crate::AbstractClient>(client: &C) {
-                client.impl_send(#method, #url).await;
+                let headers = crate::normal_headers(client, #accept);
+                client.impl_send(#method, #url, headers).await;
             }
         };
         q.to_tokens(tokens)

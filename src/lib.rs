@@ -26,41 +26,27 @@ pub struct Client {
     root_url: String,
 }
 
-impl Client {
-    pub fn new() -> Self {
-        Self::new_with_url(routes::SERVER_URL.into())
-    }
-
-    pub fn new_with_url(root_url: String) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            root_url,
-        }
-    }
-
-    pub fn new_with_reqwest(client: reqwest::Client) -> Self {
-        Self {
-            client,
-            root_url: routes::SERVER_URL.into(),
-        }
-    }
-
-    pub fn new_with_reqwest_url(client: reqwest::Client, root_url: String) -> Self {
-        Self { client, root_url }
-    }
-}
-
 #[async_trait]
 impl routes::AbstractClient for Client {
     type Response = ResponseWrapper;
 
-    async fn impl_send(&self, _method: &str, _url: &str) -> ResponseWrapper {
+    async fn impl_send<I>(&self, _method: &str, _url: &str, headers: I) -> ResponseWrapper
+    where
+        I: Iterator<Item = (String, String)>,
+    {
         unimplemented!()
     }
 
-    async fn impl_send_with_body<R>(&self, _method: &str, _url: &str, _body: R) -> ResponseWrapper
+    async fn impl_send_with_body<R, I>(
+        &self,
+        _method: &str,
+        _url: &str,
+        _body: R,
+        _headers: I,
+    ) -> ResponseWrapper
     where
         R: IntoIterator<Item = u8> + Send,
+        I: Iterator<Item = (String, String)>,
     {
         unimplemented!()
     }
