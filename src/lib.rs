@@ -23,12 +23,35 @@ pub use octorest_routes as routes;
 #[get = "pub"]
 pub struct Client<H, S>
 where
-    H: AsRef<reqwest::Client>,
-    S: AsRef<str>,
+    H: AsRef<reqwest::Client> + Send + Sync,
+    S: AsRef<str> + Send + Sync,
 {
-    client: H,
+    http: H,
     root_url: S,
     token: String,
+}
+
+impl<H> Client<H, &'static str>
+where
+    H: AsRef<reqwest::Client> + Send + Sync,
+{
+    pub fn new(http: H, token: String) -> Self {
+        Self::new_with_url(http, routes::SERVER_URL, token)
+    }
+}
+
+impl<H, S> Client<H, S>
+where
+    H: AsRef<reqwest::Client> + Send + Sync,
+    S: AsRef<str> + Send + Sync,
+{
+    pub fn new_with_url(http: H, root_url: S, token: String) -> Self {
+        Self {
+            http,
+            root_url,
+            token,
+        }
+    }
 }
 
 #[async_trait]
