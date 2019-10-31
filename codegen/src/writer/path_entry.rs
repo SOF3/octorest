@@ -65,7 +65,7 @@ impl ToTokens for PathEntry {
             .operation
             .description
             .as_ref()
-            .map(|string| remove_doc_tests(string));
+            .map(|string| super::remove_doc_tests(string));
 
         let method = &self.method;
         let url = &self.path;
@@ -82,21 +82,4 @@ impl ToTokens for PathEntry {
         };
         q.to_tokens(tokens)
     }
-}
-
-fn remove_doc_tests(string: &str) -> String {
-    let mut out = String::with_capacity(string.len());
-    let mut flag = true;
-    let mut last_pos = 0;
-    while let Some(pos) = string[last_pos..].find("```") {
-        let pos = last_pos + pos + 3;
-        out += &string[last_pos..pos];
-        if flag {
-            out += "text";
-        }
-        last_pos = pos;
-        flag = !flag;
-    }
-    out += &string[last_pos..];
-    out
 }

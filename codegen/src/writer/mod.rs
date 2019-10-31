@@ -103,3 +103,20 @@ impl RouteStore {
         Ok(ret)
     }
 }
+
+fn remove_doc_tests(string: &str) -> String {
+    let mut out = String::with_capacity(string.len());
+    let mut flag = true;
+    let mut last_pos = 0;
+    while let Some(pos) = string[last_pos..].find("```") {
+        let pos = last_pos + pos + 3;
+        out += &string[last_pos..pos];
+        if flag {
+            out += "text";
+        }
+        last_pos = pos;
+        flag = !flag;
+    }
+    out += &string[last_pos..];
+    out
+}

@@ -13,7 +13,7 @@ derive_more = "0.15.0"
 derive-new = "0.5.8"
 getset = "0.0.8"
 octorest-routes = {version = "0.1.0", path = "routes"}
-reqwest = {version = "0.10.0-alpha.0", git = "https://github.com/seanmonstar/reqwest"}
+reqwest = "0.10.0-alpha.1"
 static_assertions = "0.3.4"
 
 [dev-dependencies]

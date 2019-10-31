@@ -45,7 +45,11 @@ impl<'a> IdItem<'a> {
         let method = entry.method_name();
         let method = Ident::new(&method, Span::call_site());
         let summary = &entry.operation.summary;
-        let description = &entry.operation.description;
+        let description = entry
+            .operation
+            .description
+            .as_ref()
+            .map(|s| super::remove_doc_tests(&s));
         quote! {
             #[doc = #summary]
             #[doc = ""]
