@@ -11,7 +11,7 @@ homepage = "https://github.com/SOF3/octorest"
 async-trait = "0.1.11"
 derive_more = "0.99.0"
 derive-new = "0.5.8"
-getset = "0.0.8"
+getset = "0.0.9"
 octorest-routes = {version = "0.1.0", path = "routes"}
 reqwest = "0.10.0-alpha.1"
 static_assertions = "0.3.4"
