@@ -14,7 +14,7 @@ derive-new = "0.5.8"
 getset = "0.0.9"
 octorest-routes = {version = "0.1.0", path = "routes"}
 reqwest = "0.10.0-alpha.1"
-static_assertions = "0.3.4"
+static_assertions = "1.1.0"
 
 [dev-dependencies]
 dialoguer = "0.5.0"
