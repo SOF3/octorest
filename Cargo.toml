@@ -9,7 +9,7 @@ homepage = "https://github.com/SOF3/octorest"
 
 [dependencies]
 async-trait = "0.1.11"
-derive_more = "0.15.0"
+derive_more = "0.99.0"
 derive-new = "0.5.8"
 getset = "0.0.8"
 octorest-routes = {version = "0.1.0", path = "routes"}
