@@ -1,0 +1,21 @@
+[package]
+name = "octorest-build"
+version = "0.0.0"
+authors = ["SOFe <sofe2038@gmail.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/SOF3/octorest"
+homepage = "https://github.com/SOF3/octorest"
+
+exclude = [
+	"routes",
+	"!routes/openapi/api.github.com"
+]
+
+[dependencies]
+getset = "0.1.1"
+proc-macro2 = "1.0.18"
+quote = "1.0.6"
+serde = {version = "1.0.111", features = ["derive", "std"]}
+serde_json = "1.0.53"
+serde_path_to_error = "0.1.2"

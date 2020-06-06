@@ -1,0 +1,19 @@
+[package]
+name = "octorest"
+version = "0.0.0"
+authors = ["SOFe <sofe2038@gmail.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/SOF3/octorest"
+homepage = "https://github.com/SOF3/octorest"
+readme = "README.md"
+description = "Generated GitHub API bindings"
+build = "run-build.rs"
+
+exclude = [
+	"routes",
+	"!routes/openapi/api.github.com"
+]
+
+[build-dependencies]
+octorest-build = {version = "0.0.0", path = "build"}
