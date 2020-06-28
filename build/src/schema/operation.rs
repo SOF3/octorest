@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use getset::Getters;
+use getset::{CopyGetters, Getters};
 use serde::Deserialize;
 
 use super::{ExternalDocs, Schema};
@@ -19,18 +19,21 @@ pub struct Operation {
     responses: Responses,
 }
 
-#[derive(Deserialize, Getters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-#[getset(get = "pub")]
 pub struct Parameter {
+    #[getset(get = "pub")]
     name: String,
+    #[getset(get_copy = "pub")]
     #[serde(rename = "in")]
     location: ParameterLocation,
+    #[getset(get = "pub")]
     description: Option<String>,
+    #[getset(get = "pub")]
     schema: Schema,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ParameterLocation {
     Query,

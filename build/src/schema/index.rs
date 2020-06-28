@@ -65,40 +65,13 @@ impl Paths {
 }
 
 #[derive(Deserialize)]
-pub struct PathItem(HashMap<String, MaybeRef<super::Operation>>);
+pub struct PathItem(HashMap<String, super::Operation>);
 
 impl PathItem {
-    pub fn get(&self) -> &HashMap<String, MaybeRef<super::Operation>> {
+    pub fn get(&self) -> &HashMap<String, super::Operation> {
         &self.0
     }
-    pub(super) fn get_mut(&mut self) -> &mut HashMap<String, MaybeRef<super::Operation>> {
+    pub(super) fn get_mut(&mut self) -> &mut HashMap<String, super::Operation> {
         &mut self.0
     }
-}
-
-pub enum MaybeRef<T> {
-    Value(T),
-    Ref(Ref),
-}
-
-impl<T> MaybeRef<T> {
-    pub fn get(&self) -> &T {
-        match self {
-            Self::Value(t) => t,
-            Self::Ref(_) => panic!("Call to MaybeRef::get() before ref resolution"),
-        }
-    }
-}
-
-impl<'de, T> Deserialize<'de> for MaybeRef<T> {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Ok(Self::Ref(Ref::deserialize(d)?))
-    }
-}
-
-#[derive(Deserialize, Getters)]
-pub struct Ref {
-    #[serde(rename = "$ref")]
-    #[get = "pub(super)"]
-    ref_path: PathBuf,
 }

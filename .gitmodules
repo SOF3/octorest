@@ -1,3 +1,0 @@
-[submodule "routes"]
-	path = routes
-	url = https://github.com/octokit/routes
