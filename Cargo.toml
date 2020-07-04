@@ -21,6 +21,9 @@ exclude = [
 [build-dependencies]
 octorest-build = {version = "0.0.0", path = "build"}
 
+[lib]
+name = "octorest"
+
 [features]
 github-app = ["jsonwebtoken"]
 
@@ -93,6 +96,8 @@ getset = "0.1.1"
 jsonwebtoken = {version = "7.1.0", optional = true}
 reqwest = {version = "0.10.6", features = ["json"]}
 serde = {version = "1.0.111", features = ["derive"]}
+serde_json = "1.0.55"
+snafu = "0.6.8"
 
 [package.metadata.docs.rs]
 features = ["internal-docsrs"]

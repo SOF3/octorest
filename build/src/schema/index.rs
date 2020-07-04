@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use getset::{Getters, MutGetters};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 
 #[derive(Deserialize, Getters, MutGetters)]
 #[serde(rename_all = "camelCase")]

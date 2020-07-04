@@ -1,7 +1,10 @@
 use proc_macro2::{Ident, Span};
 
 pub fn snake(name: &str) -> Ident {
-    let name = name.replace("+", " plus ").replace("--", " minus ");
+    let name = name
+        .replace("+", " plus ")
+        .replace("--", " minus ")
+        .replace("'", "");
     let mut conv = heck::SnakeCase::to_snake_case(name.as_str());
     fix_kw(&mut conv);
     if (b'0'..=b'9').contains(&conv.as_bytes()[0]) {
@@ -27,7 +30,10 @@ pub fn snake(name: &str) -> Ident {
 }
 
 pub fn pascal(name: &str) -> Ident {
-    let name = name.replace("+", " plus ").replace("--", " minus ");
+    let name = name
+        .replace("+", " plus ")
+        .replace("--", " minus ")
+        .replace("'", "");
     let mut conv = heck::CamelCase::to_camel_case(name.as_str());
     fix_kw(&mut conv);
     if (b'0'..=b'9').contains(&conv.as_bytes()[0]) {
