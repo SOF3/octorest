@@ -1,3 +1,5 @@
+#![allow(dead_code)] // TODO remove this before release to check if any info is unused
+
 mod index;
 pub use index::*;
 

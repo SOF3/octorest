@@ -117,19 +117,111 @@ fn create_endpoint(
     tag_struct: &Ident,
     feature_name: &str,
     fo: &FullOperation<'_>,
-    type_pool: &mut TypePool,
+    type_pool: &mut TypePool<'_>,
 ) -> (TokenStream, TokenStream) {
     let operation_name = operation_id_to_name(fo.operation.operation_id());
 
     let method_name = idents::snake(&operation_name);
+
+    let builder_name = idents::pascal(&format!("{} {} builder", tag, &operation_name));
+
+    let http_method = idents::snake(fo.method);
+
+    let FormattedArgs {
+        path,
+        accept,
+        arg_setters,
+        construct_builder_method,
+        builder_struct,
+    } = format_args(&fo, feature_name, tag_struct, &method_name, &builder_name);
+
+    let FormattedResp {
+        response_type,
+        response_subty_combs,
+        response_enum,
+        status_arms,
+    } = format_resp(&fo, feature_name, tag, tag_struct, &method_name, &operation_name);
+
+    let send_method = quote! {
+        pub async fn send(self) -> Result<#response_type, crate::TransportError> {
+            let path = #path;
+            let auth = self.main.get_auth_header().await.map_err(|err| crate::TransportError::Reqwest{ err})?;
+            let accept = #accept;
+            let mut rb = self.main.reqwest()
+                .#http_method(path)
+                .header(reqwest::header::ACCEPT, accept);
+
+            if let Some(header) = auth {
+                rb = rb.header(reqwest::header::AUTHORIZATION, &*header);
+            }
+
+            let result = rb.send().await.map_err(|err| crate::TransportError::Reqwest{ err: err })?;
+            Ok(match result.status().as_u16() {
+                #status_arms
+                status => {
+                    return Err(crate::TransportError::UnexpectedStatus {
+                        status
+                    });
+                },
+            })
+        }
+    };
+
+    (
+        quote! {
+            #construct_builder_method
+        },
+        quote! {
+            #builder_struct
+
+            #[cfg(feature = #feature_name)]
+            impl<'t, 'a> #builder_name<'t, 'a> {
+                #arg_setters
+
+                #send_method
+            }
+
+            #response_enum
+            #response_subty_combs
+        },
+    )
+}
+
+fn operation_id_to_tag(operation_id: &str) -> &str {
+    operation_id
+        .split('/')
+        .next()
+        .expect("Operation ID should have two parts")
+}
+
+fn operation_id_to_name(operation_id: &str) -> &str {
+    operation_id
+        .split('/')
+        .nth(1)
+        .expect("Operation ID should have two parts")
+}
+
+struct FormattedArgs {
+    path: TokenStream,
+    accept: TokenStream,
+    arg_setters: TokenStream,
+    construct_builder_method: TokenStream,
+    builder_struct: TokenStream,
+}
+
+fn format_args(
+    fo: &FullOperation,
+    feature_name: &str,
+    tag_struct: &Ident,
+    method_name: &Ident,
+    builder_name: &Ident,
+) -> FormattedArgs {
     let method_doc = format!(
         "{}\n\n{}\n\n# See also\n- [GitHub Developer Guide]({})",
         fo.operation.summary(),
         fo.operation.description(),
         fo.operation.external_docs().url()
     );
-
-    let builder_name = idents::pascal(&format!("{} {} builder", tag, &operation_name));
     let builder_doc = format!(
         r"Request builder for `{method}`.
 
@@ -137,17 +229,6 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
         method = &method_name,
         tag = &tag_struct,
     );
-
-    let response_type = idents::pascal(&format!("{} {} response", tag, &operation_name));
-    let response_doc = format!(
-        r"Response for `{method}`.
-
-See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for more information.",
-        method = &method_name,
-        tag = &tag_struct,
-    );
-
-    let http_method = idents::snake(fo.method);
 
     // Partition arguments into categories:
     // Required (in the path), Optional and Fixed (like Content-Length and Accept).
@@ -202,45 +283,67 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         }
     }
 
-    // Compute the URL expression,
-    // as well as the required parameters.
-    let path = format!("https://api.github.com{}", fo.path);
-    let path = if path_args.is_empty() {
-        quote!(#path) // prevent unnecessary cloning of a &'static str
-    } else {
-        let format_args = path_args.iter().map(|arg| {
-            let format_name = Ident::new(arg.name(), Span::call_site());
-            let field_name = idents::snake(arg.name());
-            quote!(#format_name = self.#field_name)
-        });
-        quote!(&format!(#path, #(#format_args),*))
-    };
+    let required_arg_constrs = quote!(); // TODO
+    let optional_arg_constrs = quote!(); // TODO
+    let arg_fields = quote!(); // TODO
 
-    let all_args = fo
-        .params()
-        .map(|param| {
-            let arg_name = idents::snake(param.name());
-            let arg_ty = quote!(&'a str);
-
-            (arg_name, arg_ty)
-        })
-        .collect::<Vec<_>>();
-    // struct decl
-    let arg_fields = all_args.iter().map(|(name, ty)| quote!(#name: #ty));
-    // setters decl
-    let arg_setters = all_args.iter().map(|(name, ty)| {
-        quote! {
-            pub fn #name(mut self, new: #ty) -> Self {
-                self.#name = new;
-                self
+    FormattedArgs {
+        path: {
+            // Compute the URL expression,
+            // as well as the required parameters.
+            let path = format!("https://api.github.com{}", fo.path);
+            if path_args.is_empty() {
+                quote!(#path) // prevent unnecessary cloning of a &'static str
+            } else {
+                let path_format_args = path_args.iter().map(|arg| {
+                    let format_name = Ident::new(arg.name(), Span::call_site());
+                    let field_name = idents::snake(arg.name());
+                    quote!(#format_name = self.#field_name)
+                });
+                quote!(&format!(#path, #(#path_format_args),*))
             }
-        }
-    });
-    // constructor method
-    let arg_constrs = all_args
-        .iter()
-        .map(|(name, ty)| quote!(#name: Default::default()));
+        },
+        accept: quote!(#accept),
+        arg_setters: quote!(), // TODO
 
+        construct_builder_method: quote! {
+            #[doc = #method_doc]
+            pub fn #method_name(&self) -> #builder_name {
+                #builder_name {
+                    main: self.main,
+                    #required_arg_constrs
+                    #optional_arg_constrs
+                    _ph: Default::default(),
+                }
+            }
+        },
+        builder_struct: quote! {
+            #[doc = #builder_doc]
+            #[cfg(feature = #feature_name)]
+            pub struct #builder_name<'t, 'a> {
+                main: &'t Client,
+                #arg_fields
+                _ph: std::marker::PhantomData<&'a ()>,
+            }
+        },
+    }
+}
+
+struct FormattedResp {
+    response_type: Ident,
+    response_subty_combs: TokenStream,
+    response_enum: TokenStream,
+    status_arms: TokenStream,
+}
+
+fn format_resp(
+    fo: &FullOperation,
+    feature_name: &str,
+    tag: &str,
+    tag_struct: &Ident,
+    method_name: &Ident,
+    operation_name: &str,
+) -> FormattedResp {
     struct ProcessedResponse<'t> {
         status: u16,
         resp: &'t schema::Response,
@@ -248,6 +351,15 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         variant_name: Ident,
         subty: TokenStream,
     }
+
+    let response_type = idents::pascal(&format!("{} {} response", tag, &operation_name));
+    let response_doc = format!(
+        r"Response for `{method}`.
+
+See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for more information.",
+        method = &method_name,
+        tag = &tag_struct,
+    );
 
     let responses = fo
         .operation
@@ -290,151 +402,125 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
             }
         })
         .collect::<Vec<_>>();
-    let status_arms = responses
-        .iter()
-        .map(|pres| {
-            let status = pres.status;
-            let variant_name = &pres.variant_name;
-            if status == 204 {
-                quote!(#status => #response_type::#variant_name,)
-            } else {
-                quote! {
-                    #status => {
-                        let body = result.bytes().await
-                            .map_err(|err| crate::TransportError::Reqwest{ err })?;
-                        let var = serde_json::from_slice(&body)
-                            .map_err(|err| crate::TransportError::Decode{ err })?;
-                        #response_type::#variant_name(var)
+
+    FormattedResp {
+        response_type: response_type.clone(),
+        response_subty_combs: {
+            #[allow(clippy::range_minus_one)] // note that the empty and full subsets need not be generated
+            (1..=(responses.len() - 1)).flat_map(|size| {
+                responses.iter().enumerate().combinations(size).map(|mut subset| {
+                    subset.sort_by_key(|(_, pres)| pres.status);
+                    let subset_name = Ident::new(&format!("{}_{}", response_type,
+                                                          subset.iter().map(|(_, pres)| pres.status).join("_")), Span::call_site());
+
+                    let response_variants_subset = subset.iter().map(|(i, _)| &response_variants[*i]);
+
+                    let reduction_methods = subset.iter().map(|(i, pres)| {
+                        let ProcessedResponse{status, canon_name, variant_name, subty, ..} = &pres;
+                        let status = *status;
+
+                        let red_method_name = idents::snake(&format!("on {}", canon_name));
+
+                        let (handler_param, handler_call, match_capture) = if status == 204 {
+                            (quote!(), quote!(), quote!())
+                        } else {
+                            (quote!(#subty), quote!(inner), quote!((inner)))
+                        };
+
+                        if size > 1 {
+                            let residue_subset_name = Ident::new(&format!("{}_{}", response_type,
+                                                                          subset.iter().filter(|(j, _)| i != j)
+                                                                          .map(|(_, pres)| pres.status)
+                                                                          .join("_")), Span::call_site());
+                            let other_variants = subset.iter()
+                                .filter(|(j, _)| i != j)
+                                .map(|(_, other_pres)| {
+                                    let other_variant_name = &other_pres.variant_name;
+                                    if other_pres.status == 204 {
+                                        quote!(Self::#other_variant_name => #residue_subset_name::#other_variant_name,)
+                                    } else {
+                                        quote!(Self::#other_variant_name(inner) => #residue_subset_name::#other_variant_name(inner),)
+                                    }
+                                });
+
+                            quote! {
+                                pub fn #red_method_name(self, handler: impl FnOnce(#handler_param) -> R) -> #residue_subset_name<R> {
+                                    match self {
+                                        Self::Consumed(r) => #residue_subset_name::Consumed(r),
+                                        Self::#variant_name #match_capture => {
+                                            let ret = handler(#handler_call);
+                                            #residue_subset_name::Consumed(ret)
+                                        },
+                                        #(#other_variants)*
+                                    }
+                                }
+                            }
+                        } else {
+                            quote! {
+                                pub fn #red_method_name(self, handler: impl FnOnce(#handler_param) -> R) -> R {
+                                    match self {
+                                        Self::Consumed(r) => r,
+                                        Self::#variant_name #match_capture => handler(#handler_call)
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    quote! {
+                        #[allow(non_camel_case_types)]
+                        #[must_use = "some variants have not yet been handled"]
+                        #[cfg(feature = #feature_name)]
+                        #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
+                        pub enum #subset_name<R> {
+                            Consumed(R),
+                            #(#response_variants_subset)*
+                        }
+
+                        #[cfg(feature = #feature_name)]
+                        impl<R> #subset_name<R> {
+                            #(#reduction_methods)*
+                        }
                     }
-                }
-            }
-        })
-        .collect::<Vec<_>>();
-    let response_subtys = responses
-        .iter()
-        .filter(|pres| pres.status != 204)
-        .map(|pres| {
-            let ProcessedResponse {
-                status,
-                resp,
-                canon_name,
-                variant_name,
-                subty,
-            } = &pres;
-            let mut subty_doc = format!(
-                r"{status} {canon} response for `{method}`.
-
-See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for more information.",
-                method = &method_name,
-                tag = &tag_struct,
-                status = status,
-                canon = canon_name,
-            );
-            if resp.description() != "response" {
-                subty_doc = format!("{}\n\n{}", resp.description(), subty_doc);
-            }
-            quote! {
-                #[doc = #subty_doc]
-                #[derive(Debug, serde::Deserialize)]
-                #[cfg(feature = #feature_name)]
-                #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
-                pub struct #subty {
-                    // TODO
-                }
-
-                #[cfg(feature = #feature_name)]
-                impl From<#subty> for #response_type {
-                    fn from(variant: #subty) -> Self {
-                        Self::#variant_name(variant)
-                    }
-                }
-            }
-        });
-
-    let response_red = responses.iter().map(|pres| {
-        let ProcessedResponse{status, canon_name, variant_name, subty, ..} = &pres;
-        let status = *status;
-
-        let red_method_name = idents::snake(&format!("on {}", canon_name));
-        let (handler_param, handler_call, match_capture) = if status == 204 {
-            (quote!(), quote!(), quote!())
-        } else {
-            (quote!(#subty), quote!(inner), quote!((inner)))
-        };
-        let residue_name = Ident::new(&format!("{}_{}", response_type, responses
-            .iter().filter(|other_pres| status != other_pres.status)
-            .map(|other_pres| other_pres.status)
-            .join("_")), Span::call_site());
-        let other_variants = responses.iter()
-            .filter(|other_pres| status != other_pres.status)
-            .map(|other_pres| {
-                let other_variant_name = &other_pres.variant_name;
-                if other_pres.status == 204 {
-                    quote!(Self::#other_variant_name => #residue_name::#other_variant_name,)
-                } else {
-                    quote!(Self::#other_variant_name(inner) => #residue_name::#other_variant_name(inner),)
-                }
-            });
-        quote! {
-            #[cfg(feature = #feature_name)]
-            #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
-            pub fn #red_method_name<R>(self, handler: impl FnOnce(#handler_param) -> R) -> #residue_name<R> {
-                match self {
-                    Self::#variant_name #match_capture => {
-                        let ret = handler(#handler_call);
-                        #residue_name::Consumed(ret)
-                    },
-                    Self::#variant_name
-                }
-            }
-        }
-    });
-
-    #[allow(clippy::range_minus_one)] // note that the empty and full subsets need not be generated
-    let response_subty_combs = (1..=(responses.len() - 1)).flat_map(|size| {
-        responses.iter().enumerate().combinations(size).map(|mut subset| {
-            subset.sort_by_key(|(_, pres)| pres.status);
-            let subset_name = Ident::new(&format!("{}_{}", response_type,
-                subset.iter().map(|(_, pres)| pres.status).join("_")), Span::call_site());
-
-            let response_variants_subset = subset.iter().map(|(i, _)| &response_variants[*i]);
-            let status_arms_subset = subset.iter().map(|(i, _)| &status_arms[*i]);
-
-            let reduction_methods = subset.iter().map(|(i, pres)| {
+                }).collect::<Vec<_>>()
+            }).collect()
+        },
+        response_enum: {
+            let response_red = responses.iter().map(|pres| {
                 let ProcessedResponse{status, canon_name, variant_name, subty, ..} = &pres;
                 let status = *status;
 
                 let red_method_name = idents::snake(&format!("on {}", canon_name));
-
                 let (handler_param, handler_call, match_capture) = if status == 204 {
                     (quote!(), quote!(), quote!())
                 } else {
                     (quote!(#subty), quote!(inner), quote!((inner)))
                 };
 
-                if size > 1 {
-                    let residue_subset_name = Ident::new(&format!("{}_{}", response_type,
-                          subset.iter().filter(|(j, _)| i != j)
-                          .map(|(_, pres)| pres.status)
-                          .join("_")), Span::call_site());
-                    let other_variants = subset.iter()
-                        .filter(|(j, _)| i != j)
-                        .map(|(_, other_pres)| {
+                if responses.len() > 1 {
+                    let residue_name = Ident::new(&format!(
+                            "{}_{}", response_type, responses
+                            .iter()
+                            .filter(|other_pres| status != other_pres.status)
+                            .map(|other_pres| other_pres.status)
+                            .join("_"),
+                            ), Span::call_site());
+                    let other_variants = responses.iter()
+                        .filter(|other_pres| status != other_pres.status)
+                        .map(|other_pres| {
                             let other_variant_name = &other_pres.variant_name;
                             if other_pres.status == 204 {
-                                quote!(Self::#other_variant_name => #residue_subset_name::#other_variant_name,)
+                                quote!(Self::#other_variant_name => #residue_name::#other_variant_name,)
                             } else {
-                                quote!(Self::#other_variant_name(inner) => #residue_subset_name::#other_variant_name(inner),)
+                                quote!(Self::#other_variant_name(inner) => #residue_name::#other_variant_name(inner),)
                             }
                         });
-
                     quote! {
-                        pub fn #red_method_name(self, handler: impl FnOnce(#handler_param) -> R) -> #residue_subset_name<R> {
+                        pub fn #red_method_name<R>(self, handler: impl FnOnce(#handler_param) -> R) -> #residue_name<R> {
                             match self {
-                                Self::Consumed(r) => #residue_subset_name::Consumed(r),
                                 Self::#variant_name #match_capture => {
                                     let ret = handler(#handler_call);
-                                    #residue_subset_name::Consumed(ret)
+                                    #residue_name::Consumed(ret)
                                 },
                                 #(#other_variants)*
                             }
@@ -442,150 +528,120 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
                     }
                 } else {
                     quote! {
-                        pub fn #red_method_name(self, handler: impl FnOnce(#handler_param) -> R) -> R {
+                        pub fn #red_method_name<R>(self, handler: impl FnOnce(#handler_param) -> R) -> R {
                             match self {
-                                Self::Consumed(r) => r,
-                                Self::#variant_name #match_capture => handler(#handler_call)
+                                Self::#variant_name #match_capture => {
+                                    handler(#handler_call)
+                                }
                             }
                         }
                     }
                 }
             });
 
-            quote! {
-                #[allow(non_camel_case_types)]
-                #[must_use = "some variants have not yet been handled"]
-                #[cfg(feature = #feature_name)]
-                #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
-                pub enum #subset_name<R> {
-                    Consumed(R),
-                    #(#response_variants_subset)*
-                }
+            let must_use_if_multi = if response_variants.len() > 1 {
+                quote!(#[must_use = "this response may be an unsuccessful variant, which should be handled"])
+            } else {
+                quote!()
+            };
 
-                #[cfg(feature = #feature_name)]
-                impl<R> #subset_name<R> {
-                    #(#reduction_methods)*
-                }
-            }
-        }).collect::<Vec<_>>()
-    });
-
-    let must_use_if_multi = if response_variants.len() > 1 {
-        quote!(#[must_use = "this response may be an unsuccessful variant, which should be handled"])
-    } else {
-        quote!()
-    };
-
-    let unwrap_if_single = if responses.len() == 1 && responses[0].status != 204 {
-        let ProcessedResponse {
-            variant_name: only_variant,
-            subty: only_subty,
-            ..
-        } = &responses[0];
-        quote! {
-            #[cfg(feature = #feature_name)]
-            impl #response_type {
-                pub fn unwrap(self) -> #only_subty {
-                    match self {
-                        Self::#only_variant(value) => value,
+            let unwrap_if_single = if responses.len() == 1 && responses[0].status != 204 {
+                let ProcessedResponse {
+                    variant_name: only_variant,
+                    subty: only_subty,
+                    ..
+                } = &responses[0];
+                quote! {
+                    /// Unwraps this response to the only variant
+                    pub fn unwrap(self) -> #only_subty {
+                        match self {
+                            Self::#only_variant(value) => value,
+                        }
                     }
                 }
+            } else {
+                quote!()
+            };
+
+            let response_subtys = responses
+                .iter()
+                .filter(|pres| pres.status != 204)
+                .map(|pres| {
+                    let ProcessedResponse {
+                        status,
+                        resp,
+                        canon_name,
+                        variant_name,
+                        subty,
+                    } = &pres;
+                    let mut subty_doc = format!(
+                        r"{status} {canon} response for `{method}`.
+
+See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for more information.",
+                        method = &method_name,
+                        tag = &tag_struct,
+                        status = status,
+                        canon = canon_name,
+                    );
+                    if resp.description() != "response" {
+                        subty_doc = format!("{}\n\n{}", resp.description(), subty_doc);
+                    }
+                    quote! {
+                        #[doc = #subty_doc]
+                        #[derive(Debug, serde::Deserialize)]
+                        #[cfg(feature = #feature_name)]
+                        #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
+                        pub struct #subty {
+                            // TODO
+                        }
+
+                        #[cfg(feature = #feature_name)]
+                        impl From<#subty> for #response_type {
+                            fn from(variant: #subty) -> Self {
+                                Self::#variant_name(variant)
+                            }
+                        }
+                    }
+                });
+
+            quote! {
+                #[doc = #response_doc]
+                #[derive(Debug)]
+                #must_use_if_multi
+                #[cfg(feature = #feature_name)]
+                pub enum #response_type {
+                    #(#response_variants)*
+                }
+
+                #[cfg(feature = #feature_name)]
+                impl #response_type {
+                    #unwrap_if_single
+
+                    #(#response_red)*
+                }
+
+                #(#response_subtys)*
             }
-        }
-    } else {
-        quote!()
-    };
-
-    let construct_builder_method = quote! {
-        #[doc = #method_doc]
-        pub fn #method_name(&self) -> #builder_name {
-            #builder_name {
-                main: self.main,
-                #(#arg_constrs,)*
-                _ph: Default::default(),
-            }
-        }
-    };
-
-    let builder_struct = quote! {
-        #[doc = #builder_doc]
-        #[cfg(feature = #feature_name)]
-        pub struct #builder_name<'t, 'a> {
-            main: &'t Client,
-            #(#arg_fields,)*
-            _ph: std::marker::PhantomData<&'a ()>,
-        }
-    };
-
-    let response_enum = quote! {
-        #[doc = #response_doc]
-        #[derive(Debug)]
-        #must_use_if_multi
-        #[cfg(feature = #feature_name)]
-        pub enum #response_type {
-            #(#response_variants)*
-        }
-
-        #unwrap_if_single
-
-        #(#response_subtys)*
-    };
-
-    let send_method = quote! {
-        pub async fn send(self) -> Result<#response_type, crate::TransportError> {
-            let path = #path;
-            let auth = self.main.get_auth_header().await.map_err(|err| crate::TransportError::Reqwest{ err})?;
-            let accept = #accept;
-            let mut rb = self.main.reqwest()
-                .#http_method(path)
-                .header(reqwest::header::ACCEPT, accept);
-
-            if let Some(header) = auth {
-                rb = rb.header(reqwest::header::AUTHORIZATION, &*header);
-            }
-
-            let result = rb.send().await.map_err(|err| crate::TransportError::Reqwest{ err: err })?;
-            Ok(match result.status().as_u16() {
-                #(#status_arms)*
-                status => {
-                    return Err(crate::TransportError::UnexpectedStatus {
-                        status
-                    });
-                },
+        },
+        status_arms: responses
+            .iter()
+            .map(|pres| {
+                let status = pres.status;
+                let variant_name = &pres.variant_name;
+                if status == 204 {
+                    quote!(#status => #response_type::#variant_name,)
+                } else {
+                    quote! {
+                        #status => {
+                            let body = result.bytes().await
+                                .map_err(|err| crate::TransportError::Reqwest{ err })?;
+                            let var = serde_json::from_slice(&body)
+                                .map_err(|err| crate::TransportError::Decode{ err })?;
+                            #response_type::#variant_name(var)
+                        }
+                    }
+                }
             })
-        }
-    };
-
-    (
-        quote! {
-            #construct_builder_method
-        },
-        quote! {
-            #builder_struct
-
-            #[cfg(feature = #feature_name)]
-            impl<'t, 'a> #builder_name<'t, 'a> {
-                #(#arg_setters)*
-
-                #send_method
-            }
-
-            #response_enum
-            #(#response_subty_combs)*
-        },
-    )
-}
-
-fn operation_id_to_tag(operation_id: &str) -> &str {
-    operation_id
-        .split('/')
-        .next()
-        .expect("Operation ID should have two parts")
-}
-
-fn operation_id_to_name(operation_id: &str) -> &str {
-    operation_id
-        .split('/')
-        .nth(1)
-        .expect("Operation ID should have two parts")
+            .collect(),
+    }
 }
