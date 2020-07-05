@@ -9,7 +9,6 @@ use serde::Deserialize;
 pub struct Index {
     info: Info,
     external_docs: ExternalDocs,
-    #[getset(get_mut = "pub(super)")]
     paths: Paths,
 }
 
@@ -58,9 +57,6 @@ impl Paths {
     pub fn get(&self) -> &HashMap<String, PathItem> {
         &self.0
     }
-    pub(super) fn get_mut(&mut self) -> &mut HashMap<String, PathItem> {
-        &mut self.0
-    }
 }
 
 #[derive(Deserialize)]
@@ -69,8 +65,5 @@ pub struct PathItem(HashMap<String, super::Operation>);
 impl PathItem {
     pub fn get(&self) -> &HashMap<String, super::Operation> {
         &self.0
-    }
-    pub(super) fn get_mut(&mut self) -> &mut HashMap<String, super::Operation> {
-        &mut self.0
     }
 }

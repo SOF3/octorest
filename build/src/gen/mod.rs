@@ -13,7 +13,14 @@ struct FullOperation<'t> {
     operation: &'t schema::Operation,
 }
 
+impl<'t> FullOperation<'t> {
+    fn params(&self) -> impl Iterator<Item = &schema::Parameter> {
+        self.operation.parameters().iter()
+    }
+}
+
 pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
+    // First, restructure the OpenAPI format into a list of operations
     let opers = &index
         .paths()
         .get()
@@ -29,158 +36,187 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
         })
         .collect::<Vec<_>>();
 
+    // Then, group the operations by the operation tag
+    // (operation ID format: "{tag}/{name}").
     let mods = opers
         .iter()
-        .map(|fo| {
-            fo.operation
-                .operation_id()
-                .split('/')
-                .next()
-                .expect("split is nonempty")
-        })
-        .unique();
+        .map(|fo| operation_id_to_tag(fo.operation.operation_id()))
+        .unique()
+        .collect::<Vec<_>>();
 
+    // Type pool for reusing structs generated from Schema, to be located in `octorest::types`.
     let mut type_pool = TypePool::default();
-    let mut all_types = quote!();
+    // Builder/Response types, to be located in `octorest::apis`.
+    let mut br_types = quote!();
 
     let (apis, api_getters): (Vec<_>, Vec<_>) = mods
-        .clone()
-        .map(|mod_| {
-            let (endpoints, types): (Vec<_>, Vec<_>) = opers
-                .iter()
-                .filter(|fo| fo.operation.operation_id().split('/').next() == Some(mod_))
-                .map(|fo| create_endpoint(mod_, fo, &mut type_pool))
-                .unzip();
-            all_types.extend(types);
-
+        .iter()
+        .map(|&mod_| {
             let getter_method = idents::snake(mod_);
             let doc_line = &format!("{} API", heck::TitleCase::to_title_case(mod_));
             let feature_name = &format!("gh-{}", heck::KebabCase::to_kebab_case(mod_));
-            let struct_ident = idents::pascal(&format!("{} API", mod_));
+            let tag_struct = idents::pascal(&format!("{} API", mod_));
+
+            let (endpoints, types): (Vec<_>, Vec<_>) = opers
+                .iter()
+                .filter(|fo| operation_id_to_tag(fo.operation.operation_id()) == mod_)
+                .map(|fo| create_endpoint(mod_, &tag_struct, fo, &mut type_pool))
+                .unzip();
+            br_types.extend(types);
+
             (
+                // API struct for this tag
                 quote! {
                     #[doc = #doc_line]
                     #[cfg(feature = #feature_name)]
                     #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
-                    pub struct #struct_ident<'t> {
+                    pub struct #tag_struct<'t> {
                         main: &'t Client,
                     }
 
                     #[cfg(feature = #feature_name)]
-                    impl<'client> #struct_ident<'client> {
+                    impl<'client> #tag_struct<'client> {
                         #(#endpoints)*
                     }
                 },
+                // Getter struct for this tag from `octorest::Client`
                 quote! {
                     #[doc = #doc_line]
                     #[cfg(feature = #feature_name)]
                     #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
-                    pub fn #getter_method(&self) -> #struct_ident<'_> {
-                        #struct_ident { main: self }
+                    pub fn #getter_method(&self) -> #tag_struct<'_> {
+                        #tag_struct { main: self }
                     }
                 },
             )
         })
         .unzip();
 
-    let impl_client = quote! {
-        impl Client {
-            #(#api_getters)*
-        }
-    };
-
-    let types_ts = type_pool.types_ts();
-
     (
         quote! {
             use crate::Client;
-            #impl_client
+
+            impl Client {
+                #(#api_getters)*
+            }
+
             #(#apis)*
-            #all_types
+            #br_types
         },
-        quote! {
-            #types_ts
-        },
+        type_pool.types_ts(),
     )
 }
 
+/// Generates code related to this endpoint
+///
+/// # Returns
+/// - The first entry is the build method in the `Api` struct impl.
+/// - The second entry is the builder and response definitions, outside the `impl` block.
 fn create_endpoint(
     tag: &str,
+    tag_struct: &Ident,
     fo: &FullOperation<'_>,
     type_pool: &mut TypePool,
 ) -> (TokenStream, TokenStream) {
-    let method_name_raw = fo
-        .operation
-        .operation_id()
-        .split('/')
-        .last()
-        .expect("split is nonempty");
+    let operation_name = operation_id_to_name(fo.operation.operation_id());
 
-    let tag_pascal = heck::CamelCase::to_camel_case(tag);
-
-    let method_name = idents::snake(&method_name_raw);
-    let summary = fo.operation.summary();
-    let description = fo.operation.description();
-    let external_docs = format!(
-        "- [GitHub Developer Guide]({})",
+    let method_name = idents::snake(&operation_name);
+    let method_doc = format!(
+        "{}\n\n{}\n\n# See also\n- [GitHub Developer Guide]({})",
+        fo.operation.summary(),
+        fo.operation.description(),
         fo.operation.external_docs().url()
     );
 
-    let builder_name = idents::pascal(&format!("{} {} builder", tag, &method_name_raw));
+    let builder_name = idents::pascal(&format!("{} {} builder", tag, &operation_name));
     let builder_doc = format!(
         r"Request builder for `{method}`.
 
 See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
         method = &method_name,
-        tag = &tag_pascal,
+        tag = &tag_struct,
     );
 
-    let result_type = idents::pascal(&format!("{} {} response", tag, &method_name_raw));
-    let result_doc = format!(
+    let response_type = idents::pascal(&format!("{} {} response", tag, &operation_name));
+    let response_doc = format!(
         r"Response for `{method}`.
 
 See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for more information.",
         method = &method_name,
-        tag = &tag_pascal,
+        tag = &tag_struct,
     );
 
     let http_method = idents::snake(fo.method);
+
+    // Partition arguments into categories:
+    // Required (in the path), Optional and Fixed (like Content-Length and Accept).
+    let mut required_args = vec![];
+    let mut optional_args = vec![];
+
+    let mut path_args = vec![];
+    let mut query_args = vec![];
+    let mut header_args = vec![];
+
+    let mut accept = "application/vnd.github.v3+json"; // TODO handle accept header properly using ."x-github".previews
+
+    for param in fo.params() {
+        match param.location() {
+            schema::ParameterLocation::Path => {
+                required_args.push(param);
+                path_args.push(param);
+            }
+            schema::ParameterLocation::Query => {
+                if param.schema().typed().has_default() {
+                    optional_args.push(param);
+                } else {
+                    required_args.push(param);
+                }
+                query_args.push(param);
+            }
+            schema::ParameterLocation::Header => {
+                match param.name().as_str() {
+                    "accept" => {
+                        accept = match param.schema().typed() {
+                            schema::Typed::String(s) => s
+                                .default()
+                                .as_ref()
+                                .expect("Accept header must have a default value"),
+                            _ => panic!("Unexpected Accept header type, only string is expected"),
+                        };
+                    }
+                    "content-length" => {
+                        // we ignore the Content-Length header since we always send it anyway
+                    }
+                    _ => {
+                        if param.schema().typed().has_default() {
+                            optional_args.push(param);
+                        } else {
+                            required_args.push(param);
+                        }
+                        header_args.push(param);
+                    }
+                }
+            }
+            schema::ParameterLocation::Cookie => unreachable!("Unsupported parameter location"),
+        }
+    }
+
+    // Compute the URL expression,
+    // as well as the required parameters.
     let path = format!("https://api.github.com{}", fo.path);
-    let path_args = fo
-        .operation
-        .parameters()
-        .iter()
-        .filter(|param| param.location() == schema::ParameterLocation::Path)
-        .map(|param| {
-            let name = idents::snake(param.name());
-            let uncorrected = Ident::new(param.name(), Span::call_site());
-            quote!(#uncorrected = self.#name)
-        })
-        .collect::<Vec<_>>();
     let path = if path_args.is_empty() {
-        quote!(#path)
+        quote!(#path) // prevent unnecessary cloning of a &'static str
     } else {
-        quote!(&format!(#path, #(#path_args),*))
+        let format_args = path_args.iter().map(|arg| {
+            let format_name = Ident::new(arg.name(), Span::call_site());
+            let field_name = idents::snake(arg.name());
+            quote!(#format_name = self.#field_name)
+        });
+        quote!(&format!(#path, #(#format_args),*))
     };
 
-    let accept = fo
-        .operation
-        .parameters()
-        .iter()
-        .filter(|param| param.location() == schema::ParameterLocation::Header)
-        .filter(|param| param.name() == "accept")
-        .map(|param| param.schema())
-        .filter_map(|schema| match schema.typed() {
-            schema::Typed::String(ss) => ss.default().as_ref().map(|string| string.as_str()),
-            _ => None,
-        })
-        .next()
-        .unwrap_or("application/vnd.github.v3+json");
-
     let all_args = fo
-        .operation
-        .parameters()
-        .iter()
+        .params()
         .map(|param| {
             let arg_name = idents::snake(param.name());
             let arg_ty = quote!(&'a str);
@@ -194,90 +230,217 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
     let arg_setters = all_args.iter().map(|(name, ty)| {
         quote! {
             pub fn #name(mut self, new: #ty) -> Self {
-                self.#name = new; // TODO
+                self.#name = new;
                 self
             }
         }
     });
     // constructor method
-    let arg_constrs = all_args.iter().map(|(name, ty)| quote!(#name: ""));
+    let arg_constrs = all_args
+        .iter()
+        .map(|(name, ty)| quote!(#name: Default::default()));
 
-    let mut variant_names = vec![];
-    let mut subtys = vec![];
-    let mut result_variants = vec![];
-    let mut status_arms = vec![];
-    let mut result_sub_types = vec![];
-    for (&status, resp) in fo.operation.responses().get().iter() {
-        let canon_name = http::StatusCode::from_u16(status)
-            .expect("unknown HTTP status code declared")
-            .canonical_reason()
-            .expect("unnamed HTTP status code");
-        let variant_name = idents::pascal(canon_name);
-        variant_names.push(variant_name.clone());
-        let subty = if status == 204 {
-            quote!(())
-        } else {
-            idents::pascal(&format!(
-                "{} {} {} response",
-                tag, &method_name_raw, &variant_name
-            ))
-            .into_token_stream()
-        };
-        subtys.push(subty.clone());
-        if status == 204 {
-            result_variants.push(quote!(#variant_name,));
-            status_arms.push(quote!(#status => #result_type::#variant_name,));
-        } else {
-            result_variants.push(quote!(#variant_name(#subty),));
-            status_arms.push(quote! {
-                #status => {
-                    let body = result.bytes().await
-                        .map_err(|err| crate::TransportError::Reqwest{ err })?;
-                    let var = serde_json::from_slice(&body)
-                        .map_err(|err| crate::TransportError::Decode{ err })?;
-                    #result_type::#variant_name(var)
-                },
-            });
+    let responses = fo
+        .operation
+        .responses()
+        .get()
+        .map(|(&status, resp)| {
+            let canon_name = http::StatusCode::from_u16(status)
+                .expect("unknown HTTP status code declared")
+                .canonical_reason()
+                .expect("unnamed HTTP status code");
+            let variant_name = idents::pascal(canon_name);
+            let subty = if status == 204 {
+                quote!(())
+            } else {
+                idents::pascal(&format!(
+                    "{} {} {} response",
+                    tag, &operation_name, &variant_name
+                ))
+                .into_token_stream()
+            };
+            (status, resp, canon_name, variant_name, subty)
+        })
+        .collect::<Vec<_>>();
 
+    let response_variants = responses
+        .iter()
+        .map(|(status, _resp, _canon_name, variant_name, subty)| {
+            if *status == 204 {
+                quote!(#variant_name,)
+            } else {
+                quote!(#variant_name(#subty),)
+            }
+        })
+        .collect::<Vec<_>>();
+    let status_arms = responses
+        .iter()
+        .map(|(status, _resp, _canon_name, variant_name, _subty)| {
+            if *status == 204 {
+                quote!(#status => #response_type::#variant_name,)
+            } else {
+                quote! {
+                    #status => {
+                        let body = result.bytes().await
+                            .map_err(|err| crate::TransportError::Reqwest{ err })?;
+                        let var = serde_json::from_slice(&body)
+                            .map_err(|err| crate::TransportError::Decode{ err })?;
+                        #response_type::#variant_name(var)
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    let response_subtys = responses
+        .iter()
+        .filter(|(status, _, _, _, _)| *status != 204)
+        .map(|(status, resp, canon_name, variant_name, subty)| {
             let mut subty_doc = format!(
                 r"{status} {canon} response for `{method}`.
 
 See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for more information.",
                 method = &method_name,
-                tag = &tag_pascal,
+                tag = &tag_struct,
                 status = status,
                 canon = canon_name,
             );
             if resp.description() != "response" {
                 subty_doc = format!("{}\n\n{}", resp.description(), subty_doc);
             }
-            result_sub_types.push(quote! {
+            quote! {
                 #[doc = #subty_doc]
                 #[derive(Debug, serde::Deserialize)]
                 pub struct #subty {
                     // TODO
                 }
 
-                impl From<#subty> for #result_type {
+                impl From<#subty> for #response_type {
                     fn from(variant: #subty) -> Self {
                         Self::#variant_name(variant)
                     }
                 }
-            });
-        }
-    }
+            }
+        });
 
-    let must_use_if_multi = if result_variants.len() > 1 {
+    let response_red = responses.iter().map(|(status, _, canon_name, variant_name, subty)| {
+        let red_method_name = idents::snake(&format!("on {}", canon_name));
+        let (handler_param, handler_call, match_capture) = if *status == 204 {
+            (quote!(), quote!(), quote!())
+        } else {
+            (quote!(#subty), quote!(inner), quote!((inner)))
+        };
+        let residue_name = Ident::new(&format!("{}_{}", response_type, responses
+            .iter().map(|(other_status, _, _, _, _)| other_status)
+            .filter(|other_status| status != *other_status)
+            .join("_")), Span::call_site());
+        let other_variants = responses.iter()
+            .filter(|(other_status, _, _, _, _)| status != other_status)
+            .map(|(other_status, _, _, other_variant_name, _)| {
+                if *other_status == 204 {
+                    quote!(Self::#other_variant_name => #residue_name::#other_variant_name,)
+                } else {
+                    quote!(Self::#other_variant_name(inner) => #residue_name::#other_variant_name(inner),)
+                }
+            });
+        quote! {
+            pub fn #red_method_name<R>(self, handler: impl FnOnce(#handler_param) -> R) -> #residue_name<R> {
+                match self {
+                    Self::#variant_name #match_capture => {
+                        let ret = handler(#handler_call);
+                        #residue_name::Consumed(ret)
+                    },
+                    Self::#variant_name
+                }
+            }
+        }
+    });
+
+    #[allow(clippy::range_minus_one)] // note that the empty and full subsets need not be generated
+    let response_subty_combs = (1..=(responses.len() - 1)).flat_map(|size| {
+        responses.iter().enumerate().combinations(size).map(|mut subset| {
+            subset.sort_by_key(|(_, (status, _, _, _, _))| status);
+            let mut subset_name = response_type.to_string();
+            for (_, (status, _, _, _, _)) in &subset {
+                subset_name += format!("_{}", status).as_str();
+            }
+            let subset_name = Ident::new(&subset_name, Span::call_site());
+
+            let response_variants_subset = subset.iter().map(|(i, _)| &response_variants[*i]);
+            let status_arms_subset = subset.iter().map(|(i, _)| &status_arms[*i]);
+
+            let reduction_methods = subset.iter().map(|(i, (status, _resp, canon_name, variant_name, subty))| {
+                let red_method_name = idents::snake(&format!("on {}", canon_name));
+
+                let (handler_param, handler_call, match_capture) = if *status == 204 {
+                    (quote!(), quote!(), quote!())
+                } else {
+                    (quote!(#subty), quote!(inner), quote!((inner)))
+                };
+
+                if size > 1 {
+                    let residue_subset_name = Ident::new(&format!("{}_{}", response_type,
+                          subset.iter().filter(|(j, _)| i != j)
+                          .map(|(_, (status, _, _, _, _))| status)
+                          .join("_")), Span::call_site());
+                    let other_variants = subset.iter()
+                        .filter(|(j, _)| i != j)
+                        .map(|(_, (other_status, _, _, other_variant_name, _))| {
+                            if *other_status == 204 {
+                                quote!(Self::#other_variant_name => #residue_subset_name::#other_variant_name,)
+                            } else {
+                                quote!(Self::#other_variant_name(inner) => #residue_subset_name::#other_variant_name(inner),)
+                            }
+                        });
+
+                    quote! {
+                        pub fn #red_method_name(self, handler: impl FnOnce(#handler_param) -> R) -> #residue_subset_name<R> {
+                            match self {
+                                Self::Consumed(r) => #residue_subset_name::Consumed(r),
+                                Self::#variant_name #match_capture => {
+                                    let ret = handler(#handler_call);
+                                    #residue_subset_name::Consumed(ret)
+                                },
+                                #(#other_variants)*
+                            }
+                        }
+                    }
+                } else {
+                    quote! {
+                        pub fn #red_method_name(self, handler: impl FnOnce(#handler_param) -> R) -> R {
+                            match self {
+                                Self::Consumed(r) => r,
+                                Self::#variant_name #match_capture => handler(#handler_call)
+                            }
+                        }
+                    }
+                }
+            });
+
+            quote! {
+                #[allow(non_camel_case_types)]
+                #[must_use = "some variants have not yet been handled"]
+                pub enum #subset_name<R> {
+                    Consumed(R),
+                    #(#response_variants_subset)*
+                }
+
+                impl<R> #subset_name<R> {
+                    #(#reduction_methods)*
+                }
+            }
+        }).collect::<Vec<_>>()
+    });
+
+    let must_use_if_multi = if response_variants.len() > 1 {
         quote!(#[must_use = "this response may be an unsuccessful variant, which should be handled"])
     } else {
         quote!()
     };
 
-    let unwrap_if_single = if subtys.len() == 1 && subtys[0].to_string() != quote!(()).to_string() {
-        let only_subty = &subtys[0];
-        let only_variant = &variant_names[0];
+    let unwrap_if_single = if responses.len() == 1 && responses[0].0 != 204 {
+        let (_, _, _, only_variant, only_subty) = &responses[0];
         quote! {
-            impl #result_type {
+            impl #response_type {
                 pub fn unwrap(self) -> #only_subty {
                     match self {
                         Self::#only_variant(value) => value,
@@ -290,12 +453,7 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
     };
 
     let construct_builder_method = quote! {
-        #[doc = #summary]
-        ///
-        #[doc = #description]
-        ///
-        /// # See also
-        #[doc = #external_docs]
+        #[doc = #method_doc]
         pub fn #method_name(&self) -> #builder_name {
             #builder_name {
                 main: self.main,
@@ -314,21 +472,21 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         }
     };
 
-    let result_enum = quote! {
-        #[doc = #result_doc]
+    let response_enum = quote! {
+        #[doc = #response_doc]
         #[derive(Debug)]
         #must_use_if_multi
-        pub enum #result_type {
-            #(#result_variants)*
+        pub enum #response_type {
+            #(#response_variants)*
         }
 
         #unwrap_if_single
 
-        #(#result_sub_types)*
+        #(#response_subtys)*
     };
 
     let send_method = quote! {
-        pub async fn send(self) -> Result<#result_type, crate::TransportError> {
+        pub async fn send(self) -> Result<#response_type, crate::TransportError> {
             let path = #path;
             let auth = self.main.get_auth_header().await.map_err(|err| crate::TransportError::Reqwest{ err})?;
             let accept = #accept;
@@ -365,7 +523,22 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
                 #send_method
             }
 
-            #result_enum
+            #response_enum
+            #(#response_subty_combs)*
         },
     )
+}
+
+fn operation_id_to_tag(operation_id: &str) -> &str {
+    operation_id
+        .split('/')
+        .next()
+        .expect("Operation ID should have two parts")
+}
+
+fn operation_id_to_name(operation_id: &str) -> &str {
+    operation_id
+        .split('/')
+        .nth(1)
+        .expect("Operation ID should have two parts")
 }

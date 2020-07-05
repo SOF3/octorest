@@ -6,11 +6,14 @@ edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/SOF3/octorest"
 homepage = "https://github.com/SOF3/octorest"
+description = "Build script for octorest"
 
 exclude = [
-	"routes",
-	"!routes/openapi/api.github.com"
+	# "api.github.com.json"
 ]
+
+[lib]
+name = "octorest_build"
 
 [dependencies]
 cfg-if = "0.1.10"
@@ -27,12 +30,12 @@ serde = {version = "1.0.111", features = ["derive", "std"]}
 serde_json = "1.0.53"
 serde_path_to_error = "0.1.2"
 
-[features]
-default = ["online"]
-dev = ["pretty_env_logger"]
-online = ["reqwest"]
-
 [dependencies.syn]
 version = "1.0.30"
 default-features = false
 features = ["parsing"]
+
+[features]
+default = ["online"]
+dev = ["pretty_env_logger"]
+online = ["reqwest"]

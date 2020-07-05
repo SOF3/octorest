@@ -61,8 +61,8 @@ pub struct MediaType {
 pub struct Responses(HashMap<u16, Response>);
 
 impl Responses {
-    pub fn get(&self) -> &HashMap<u16, Response> {
-        &self.0
+    pub fn get(&self) -> impl Iterator<Item = (&u16, &Response)> {
+        self.0.iter()
     }
 }
 

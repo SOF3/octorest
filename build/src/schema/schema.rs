@@ -32,6 +32,20 @@ pub enum Typed {
     Unknown,
 }
 
+impl Typed {
+    pub fn has_default(&self) -> bool {
+        match self {
+            Self::String(s) => s.default.is_some(),
+            Self::Integer(s) => s.default.is_some(),
+            Self::Number(s) => s.default.is_some(),
+            Self::Boolean(s) => s.default.is_some(),
+            Self::Object(s) => s.default.is_some(),
+            Self::Array(s) => s.default.is_some(),
+            Self::Unknown => false,
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Typed {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let mut value = serde_json::Map::<String, serde_json::Value>::deserialize(d)?;
