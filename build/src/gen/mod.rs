@@ -60,7 +60,7 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
             let (endpoints, types): (Vec<_>, Vec<_>) = opers
                 .iter()
                 .filter(|fo| operation_id_to_tag(fo.operation.operation_id()) == mod_)
-                .map(|fo| create_endpoint(mod_, &tag_struct, fo, &mut type_pool))
+                .map(|fo| create_endpoint(mod_, &tag_struct, &feature_name, fo, &mut type_pool))
                 .unzip();
             br_types.extend(types);
 
@@ -115,6 +115,7 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
 fn create_endpoint(
     tag: &str,
     tag_struct: &Ident,
+    feature_name: &str,
     fo: &FullOperation<'_>,
     type_pool: &mut TypePool,
 ) -> (TokenStream, TokenStream) {
@@ -335,10 +336,13 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
             quote! {
                 #[doc = #subty_doc]
                 #[derive(Debug, serde::Deserialize)]
+                #[cfg(feature = #feature_name)]
+                #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
                 pub struct #subty {
                     // TODO
                 }
 
+                #[cfg(feature = #feature_name)]
                 impl From<#subty> for #response_type {
                     fn from(variant: #subty) -> Self {
                         Self::#variant_name(variant)
@@ -372,6 +376,8 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
                 }
             });
         quote! {
+            #[cfg(feature = #feature_name)]
+            #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
             pub fn #red_method_name<R>(self, handler: impl FnOnce(#handler_param) -> R) -> #residue_name<R> {
                 match self {
                     Self::#variant_name #match_capture => {
@@ -449,11 +455,14 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
             quote! {
                 #[allow(non_camel_case_types)]
                 #[must_use = "some variants have not yet been handled"]
+                #[cfg(feature = #feature_name)]
+                #[cfg_attr(feature = "internal-docsrs", doc(cfg(feature = #feature_name)))]
                 pub enum #subset_name<R> {
                     Consumed(R),
                     #(#response_variants_subset)*
                 }
 
+                #[cfg(feature = #feature_name)]
                 impl<R> #subset_name<R> {
                     #(#reduction_methods)*
                 }
@@ -474,6 +483,7 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
             ..
         } = &responses[0];
         quote! {
+            #[cfg(feature = #feature_name)]
             impl #response_type {
                 pub fn unwrap(self) -> #only_subty {
                     match self {
@@ -499,6 +509,7 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
 
     let builder_struct = quote! {
         #[doc = #builder_doc]
+        #[cfg(feature = #feature_name)]
         pub struct #builder_name<'t, 'a> {
             main: &'t Client,
             #(#arg_fields,)*
@@ -510,6 +521,7 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         #[doc = #response_doc]
         #[derive(Debug)]
         #must_use_if_multi
+        #[cfg(feature = #feature_name)]
         pub enum #response_type {
             #(#response_variants)*
         }
@@ -551,6 +563,7 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         quote! {
             #builder_struct
 
+            #[cfg(feature = #feature_name)]
             impl<'t, 'a> #builder_name<'t, 'a> {
                 #(#arg_setters)*
 
