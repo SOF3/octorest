@@ -240,6 +240,14 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         .iter()
         .map(|(name, ty)| quote!(#name: Default::default()));
 
+    struct ProcessedResponse<'t> {
+        status: u16,
+        resp: &'t schema::Response,
+        canon_name: &'static str,
+        variant_name: Ident,
+        subty: TokenStream,
+    }
+
     let responses = fo
         .operation
         .responses()
@@ -259,14 +267,22 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
                 ))
                 .into_token_stream()
             };
-            (status, resp, canon_name, variant_name, subty)
+            ProcessedResponse {
+                status,
+                resp,
+                canon_name,
+                variant_name,
+                subty,
+            }
         })
         .collect::<Vec<_>>();
 
     let response_variants = responses
         .iter()
-        .map(|(status, _resp, _canon_name, variant_name, subty)| {
-            if *status == 204 {
+        .map(|pres| {
+            let variant_name = &pres.variant_name;
+            let subty = &pres.subty;
+            if pres.status == 204 {
                 quote!(#variant_name,)
             } else {
                 quote!(#variant_name(#subty),)
@@ -275,8 +291,10 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         .collect::<Vec<_>>();
     let status_arms = responses
         .iter()
-        .map(|(status, _resp, _canon_name, variant_name, _subty)| {
-            if *status == 204 {
+        .map(|pres| {
+            let status = pres.status;
+            let variant_name = &pres.variant_name;
+            if status == 204 {
                 quote!(#status => #response_type::#variant_name,)
             } else {
                 quote! {
@@ -293,8 +311,15 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         .collect::<Vec<_>>();
     let response_subtys = responses
         .iter()
-        .filter(|(status, _, _, _, _)| *status != 204)
-        .map(|(status, resp, canon_name, variant_name, subty)| {
+        .filter(|pres| pres.status != 204)
+        .map(|pres| {
+            let ProcessedResponse {
+                status,
+                resp,
+                canon_name,
+                variant_name,
+                subty,
+            } = &pres;
             let mut subty_doc = format!(
                 r"{status} {canon} response for `{method}`.
 
@@ -322,21 +347,25 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
             }
         });
 
-    let response_red = responses.iter().map(|(status, _, canon_name, variant_name, subty)| {
+    let response_red = responses.iter().map(|pres| {
+        let ProcessedResponse{status, canon_name, variant_name, subty, ..} = &pres;
+        let status = *status;
+
         let red_method_name = idents::snake(&format!("on {}", canon_name));
-        let (handler_param, handler_call, match_capture) = if *status == 204 {
+        let (handler_param, handler_call, match_capture) = if status == 204 {
             (quote!(), quote!(), quote!())
         } else {
             (quote!(#subty), quote!(inner), quote!((inner)))
         };
         let residue_name = Ident::new(&format!("{}_{}", response_type, responses
-            .iter().map(|(other_status, _, _, _, _)| other_status)
-            .filter(|other_status| status != *other_status)
+            .iter().filter(|other_pres| status != other_pres.status)
+            .map(|other_pres| other_pres.status)
             .join("_")), Span::call_site());
         let other_variants = responses.iter()
-            .filter(|(other_status, _, _, _, _)| status != other_status)
-            .map(|(other_status, _, _, other_variant_name, _)| {
-                if *other_status == 204 {
+            .filter(|other_pres| status != other_pres.status)
+            .map(|other_pres| {
+                let other_variant_name = &other_pres.variant_name;
+                if other_pres.status == 204 {
                     quote!(Self::#other_variant_name => #residue_name::#other_variant_name,)
                 } else {
                     quote!(Self::#other_variant_name(inner) => #residue_name::#other_variant_name(inner),)
@@ -358,20 +387,20 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
     #[allow(clippy::range_minus_one)] // note that the empty and full subsets need not be generated
     let response_subty_combs = (1..=(responses.len() - 1)).flat_map(|size| {
         responses.iter().enumerate().combinations(size).map(|mut subset| {
-            subset.sort_by_key(|(_, (status, _, _, _, _))| status);
-            let mut subset_name = response_type.to_string();
-            for (_, (status, _, _, _, _)) in &subset {
-                subset_name += format!("_{}", status).as_str();
-            }
-            let subset_name = Ident::new(&subset_name, Span::call_site());
+            subset.sort_by_key(|(_, pres)| pres.status);
+            let subset_name = Ident::new(&format!("{}_{}", response_type,
+                subset.iter().map(|(_, pres)| pres.status).join("_")), Span::call_site());
 
             let response_variants_subset = subset.iter().map(|(i, _)| &response_variants[*i]);
             let status_arms_subset = subset.iter().map(|(i, _)| &status_arms[*i]);
 
-            let reduction_methods = subset.iter().map(|(i, (status, _resp, canon_name, variant_name, subty))| {
+            let reduction_methods = subset.iter().map(|(i, pres)| {
+                let ProcessedResponse{status, canon_name, variant_name, subty, ..} = &pres;
+                let status = *status;
+
                 let red_method_name = idents::snake(&format!("on {}", canon_name));
 
-                let (handler_param, handler_call, match_capture) = if *status == 204 {
+                let (handler_param, handler_call, match_capture) = if status == 204 {
                     (quote!(), quote!(), quote!())
                 } else {
                     (quote!(#subty), quote!(inner), quote!((inner)))
@@ -380,12 +409,13 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
                 if size > 1 {
                     let residue_subset_name = Ident::new(&format!("{}_{}", response_type,
                           subset.iter().filter(|(j, _)| i != j)
-                          .map(|(_, (status, _, _, _, _))| status)
+                          .map(|(_, pres)| pres.status)
                           .join("_")), Span::call_site());
                     let other_variants = subset.iter()
                         .filter(|(j, _)| i != j)
-                        .map(|(_, (other_status, _, _, other_variant_name, _))| {
-                            if *other_status == 204 {
+                        .map(|(_, other_pres)| {
+                            let other_variant_name = &other_pres.variant_name;
+                            if other_pres.status == 204 {
                                 quote!(Self::#other_variant_name => #residue_subset_name::#other_variant_name,)
                             } else {
                                 quote!(Self::#other_variant_name(inner) => #residue_subset_name::#other_variant_name(inner),)
@@ -437,8 +467,12 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for 
         quote!()
     };
 
-    let unwrap_if_single = if responses.len() == 1 && responses[0].0 != 204 {
-        let (_, _, _, only_variant, only_subty) = &responses[0];
+    let unwrap_if_single = if responses.len() == 1 && responses[0].status != 204 {
+        let ProcessedResponse {
+            variant_name: only_variant,
+            subty: only_subty,
+            ..
+        } = &responses[0];
         quote! {
             impl #response_type {
                 pub fn unwrap(self) -> #only_subty {
