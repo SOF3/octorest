@@ -12,8 +12,8 @@ jobs:
       - run: "wget -O build/api.github.com.json $(curl -H \"Authorization: header ${{secrets.GH_TOKEN}}\" https://api.github.com/repos/octokit/routes/releases/latest | jq -r '.assets | map(select(.name == \"api.github.com.json\")) | first | .browser_download_url')"
       - run: cargo +nightly doc --no-deps --features internal-docsrs
       - run: git fetch && git checkout gh-pages
-      - run: test ! -d ${{github.ref}} || rm -r ${{github.ref}}
-      - run: cp -r target/doc/octorest ${{github.ref}}
+      - run: test ! -d $(${{github.ref}} | cut -d/ -f3) || rm -r $(${{github.ref}} | cut -d/ -f3)
+      - run: cp -r target/doc/octorest $(${{github.ref}} | cut -d/ -f3)
       - run: git config --local user.name "github-actions[bot]" && git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      - run: git add ${{github.ref}} && git commit -m "Docs build for SOF3/octorest@${{github.sha}}"
+      - run: git add $(${{github.ref}} | cut -d/ -f3) && git commit -m "Docs build for SOF3/octorest@${{github.sha}}"
       - run: git push
