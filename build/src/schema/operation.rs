@@ -39,7 +39,6 @@ pub enum ParameterLocation {
     Query,
     Header,
     Path,
-    Cookie,
 }
 
 #[derive(Deserialize, Getters)]

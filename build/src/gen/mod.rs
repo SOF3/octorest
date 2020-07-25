@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use itertools::Itertools;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, ToTokens};
@@ -5,7 +7,7 @@ use quote::{quote, ToTokens};
 use crate::{idents, schema};
 
 mod type_pool;
-use type_pool::TypePool;
+use type_pool::*;
 
 struct FullOperation<'t> {
     path: &'t str,
@@ -46,24 +48,26 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
 
     // Type pool for reusing structs generated from Schema, to be located in `octorest::types`.
     let mut type_pool = TypePool::default();
-    // Builder/Response types, to be located in `octorest::apis`.
-    let mut br_types = quote!();
 
-    let (apis, api_getters): (Vec<_>, Vec<_>) = mods
-        .iter()
-        .map(|&mod_| {
-            let getter_method = idents::snake(mod_);
-            let doc_line = &format!("{} API", heck::TitleCase::to_title_case(mod_));
-            let feature_name = &format!("gh-{}", heck::KebabCase::to_kebab_case(mod_));
-            let tag_struct = idents::pascal(&format!("{} API", mod_));
+    // Returns a closure to be called after type_pool is no longer required.
+    let apis = mods.iter().map(|&mod_| {
+        let getter_method = idents::snake(mod_);
+        let doc_line = &format!("{} API", heck::TitleCase::to_title_case(mod_));
+        let feature_name = &format!("gh-{}", heck::KebabCase::to_kebab_case(mod_));
+        let tag_struct = idents::pascal(&format!("{} API", mod_));
 
-            let (endpoints, types): (Vec<_>, Vec<_>) = opers
-                .iter()
-                .filter(|fo| operation_id_to_tag(fo.operation.operation_id()) == mod_)
-                .map(|fo| create_endpoint(mod_, &tag_struct, &feature_name, fo, &mut type_pool))
-                .unzip();
-            br_types.extend(types);
+        let mut_type_pool = &mut type_pool;
+        let build_br = opers
+            .iter()
+            .filter(|fo| operation_id_to_tag(fo.operation.operation_id()) == mod_)
+            .map(|fo| create_endpoint(mod_, &tag_struct, &feature_name, fo, mut_type_pool));
 
+        let build_br = build_br.collect::<Vec<_>>();
+        drop(mut_type_pool); // this drop statement checks that &mut type_pool is not used below
+
+        move || {
+            let (endpoints, br_types): (TokenStream, TokenStream) =
+                build_br.into_iter().map(|f| f()).unzip();
             (
                 // API struct for this tag
                 quote! {
@@ -76,10 +80,10 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
 
                     #[cfg(feature = #feature_name)]
                     impl<'client> #tag_struct<'client> {
-                        #(#endpoints)*
+                        #endpoints
                     }
                 },
-                // Getter struct for this tag from `octorest::Client`
+                // Getter method for this tag from `octorest::Client`
                 quote! {
                     #[doc = #doc_line]
                     #[cfg(feature = #feature_name)]
@@ -88,37 +92,57 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
                         #tag_struct { main: self }
                     }
                 },
+                br_types,
             )
-        })
-        .unzip();
+        }
+    });
+
+    let apis = apis.collect::<Vec<_>>(); // type_pool is resolved here
+
+    let types_ts = type_pool.types_ts(); // type_pool is dropped in this statement
+
+    // vec of tuples of three token streams: (api struct, Client getter, br_types)
+    let apis = apis
+        .into_iter()
+        .map(|f| f())
+        .collect::<Vec<(TokenStream, TokenStream, TokenStream)>>();
+
+    let api_structs = apis.iter().map(|tuple| &tuple.0);
+    let client_getters = apis.iter().map(|tuple| &tuple.1);
+    let br_types = apis.iter().map(|tuple| &tuple.2);
 
     (
         quote! {
             use crate::Client;
 
             impl Client {
-                #(#api_getters)*
+                #(#client_getters)*
             }
 
-            #(#apis)*
-            #br_types
+            #(#api_structs)*
+
+            #(#br_types)*
         },
-        type_pool.types_ts(),
+        types_ts,
     )
 }
 
-/// Generates code related to this endpoint
+/// Generates code related to this endpoint.
+///
 ///
 /// # Returns
+/// The return value is a closure returning a tuple.
+/// Only call the tuple after `type_pool` is fully consumed.
+///
 /// - The first entry is the build method in the `Api` struct impl.
 /// - The second entry is the builder and response definitions, outside the `impl` block.
-fn create_endpoint(
-    tag: &str,
-    tag_struct: &Ident,
-    feature_name: &str,
-    fo: &FullOperation<'_>,
-    type_pool: &mut TypePool<'_>,
-) -> (TokenStream, TokenStream) {
+fn create_endpoint<'t, 'p>(
+    tag: &'t str,
+    tag_struct: &'t Ident,
+    feature_name: &'t str,
+    fo: &'t FullOperation<'t>,
+    type_pool: &mut TypePool<'p>, // the returned closure does not use &mut TypePool
+) -> impl FnOnce() -> (TokenStream, TokenStream) + 't {
     let operation_name = operation_id_to_name(fo.operation.operation_id());
 
     let method_name = idents::snake(&operation_name);
@@ -133,19 +157,33 @@ fn create_endpoint(
         arg_setters,
         construct_builder_method,
         builder_struct,
-    } = format_args(&fo, feature_name, tag_struct, &method_name, &builder_name);
+    } = format_args(
+        &fo,
+        feature_name,
+        tag_struct,
+        &method_name,
+        &builder_name,
+        type_pool,
+    );
 
     let FormattedResp {
         response_type,
         response_subty_combs,
         response_enum,
         status_arms,
-    } = format_resp(&fo, feature_name, tag, tag_struct, &method_name, &operation_name);
+    } = format_resp(
+        &fo,
+        feature_name,
+        tag,
+        tag_struct,
+        &method_name,
+        &operation_name,
+    );
 
     let send_method = quote! {
         pub async fn send(self) -> Result<#response_type, crate::TransportError> {
             let path = #path;
-            let auth = self.main.get_auth_header().await.map_err(|err| crate::TransportError::Reqwest{ err})?;
+            let auth = self.main.get_auth_header().await.map_err(|err| crate::TransportError::Reqwest{ err })?;
             let accept = #accept;
             let mut rb = self.main.reqwest()
                 .#http_method(path)
@@ -167,24 +205,31 @@ fn create_endpoint(
         }
     };
 
-    (
-        quote! {
-            #construct_builder_method
-        },
-        quote! {
-            #builder_struct
+    drop(type_pool);
 
-            #[cfg(feature = #feature_name)]
-            impl<'t, 'a> #builder_name<'t, 'a> {
-                #arg_setters
+    move || {
+        let construct_builder_method = construct_builder_method();
+        let builder_struct = builder_struct();
+        let arg_setters = arg_setters();
+        (
+            quote! {
+                #construct_builder_method
+            },
+            quote! {
+                #builder_struct
 
-                #send_method
-            }
+                #[cfg(feature = #feature_name)]
+                impl<'t, 'a> #builder_name<'t, 'a> {
+                    #arg_setters
 
-            #response_enum
-            #response_subty_combs
-        },
-    )
+                    #send_method
+                }
+
+                #response_enum
+                #response_subty_combs
+            },
+        )
+    }
 }
 
 fn operation_id_to_tag(operation_id: &str) -> &str {
@@ -201,21 +246,22 @@ fn operation_id_to_name(operation_id: &str) -> &str {
         .expect("Operation ID should have two parts")
 }
 
-struct FormattedArgs {
+struct FormattedArgs<'t> {
     path: TokenStream,
     accept: TokenStream,
-    arg_setters: TokenStream,
-    construct_builder_method: TokenStream,
-    builder_struct: TokenStream,
+    arg_setters: Box<dyn FnOnce() -> TokenStream + 't>,
+    construct_builder_method: Box<dyn FnOnce() -> TokenStream + 't>,
+    builder_struct: Box<dyn FnOnce() -> TokenStream + 't>,
 }
 
-fn format_args(
-    fo: &FullOperation,
-    feature_name: &str,
-    tag_struct: &Ident,
-    method_name: &Ident,
-    builder_name: &Ident,
-) -> FormattedArgs {
+fn format_args<'p, 't>(
+    fo: &'t FullOperation<'_>,
+    feature_name: &'t str,
+    tag_struct: &'t Ident,
+    method_name: &'t Ident,
+    builder_name: &'t Ident,
+    type_pool: &mut TypePool<'p>, // the returned closures should not use type_pool
+) -> FormattedArgs<'t> {
     let method_doc = format!(
         "{}\n\n{}\n\n# See also\n- [GitHub Developer Guide]({})",
         fo.operation.summary(),
@@ -230,101 +276,156 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
         tag = &tag_struct,
     );
 
-    // Partition arguments into categories:
-    // Required (in the path), Optional and Fixed (like Content-Length and Accept).
-    let mut required_args = vec![];
-    let mut optional_args = vec![];
-
-    let mut path_args = vec![];
-    let mut query_args = vec![];
-    let mut header_args = vec![];
-
-    let mut accept = "application/vnd.github.v3+json"; // TODO handle accept header properly using ."x-github".previews
-
-    for param in fo.params() {
-        match param.location() {
-            schema::ParameterLocation::Path => {
-                required_args.push(param);
-                path_args.push(param);
-            }
-            schema::ParameterLocation::Query => {
-                if param.schema().typed().has_default() {
-                    optional_args.push(param);
-                } else {
-                    required_args.push(param);
-                }
-                query_args.push(param);
-            }
-            schema::ParameterLocation::Header => {
-                match param.name().as_str() {
-                    "accept" => {
-                        accept = match param.schema().typed() {
-                            schema::Typed::String(s) => s
-                                .default()
-                                .as_ref()
-                                .expect("Accept header must have a default value"),
-                            _ => panic!("Unexpected Accept header type, only string is expected"),
-                        };
-                    }
-                    "content-length" => {
-                        // we ignore the Content-Length header since we always send it anyway
-                    }
-                    _ => {
-                        if param.schema().typed().has_default() {
-                            optional_args.push(param);
-                        } else {
-                            required_args.push(param);
-                        }
-                        header_args.push(param);
-                    }
-                }
-            }
-            schema::ParameterLocation::Cookie => unreachable!("Unsupported parameter location"),
-        }
+    struct ProcessedArg<'t, 'p> {
+        param: &'t schema::Parameter,
+        field_name: Ident,
+        ty: Rc<SchemaEntry<'p>>,
+        required: Require,
     }
 
-    let required_arg_constrs = quote!(); // TODO
-    let optional_arg_constrs = quote!(); // TODO
-    let arg_fields = quote!(); // TODO
+    enum Require {
+        Required,
+        Optional,
+        /// non-arguments like Content-Length and Accept
+        Accept(String),
+        ContentLength,
+    }
+
+    let args = fo
+        .params()
+        .map(|param| {
+            let field_name = idents::snake(param.name());
+            let required = match param.location() {
+                schema::ParameterLocation::Path => Require::Required,
+                schema::ParameterLocation::Query => {
+                    if param.schema().typed().has_default() {
+                        Require::Optional
+                    } else {
+                        Require::Required
+                    }
+                }
+                schema::ParameterLocation::Header => match param.name().as_str() {
+                    "accept" => match param.schema().typed() {
+                        schema::Typed::String(s) => Require::Accept(
+                            s.default()
+                                .as_ref()
+                                .expect("Accept header must have a default value")
+                                .to_owned(),
+                        ),
+                        _ => panic!("Unexpected Accept header type, only string is expected"),
+                    },
+                    "content-length" => Require::ContentLength,
+                    _ => {
+                        if param.schema().typed().has_default() {
+                            Require::Optional
+                        } else {
+                            Require::Required
+                        }
+                    }
+                },
+            };
+            ProcessedArg {
+                param,
+                required,
+                field_name,
+                ty: unimplemented!(), // TODO
+            }
+        })
+        .collect::<Vec<_>>();
 
     FormattedArgs {
         path: {
-            // Compute the URL expression,
-            // as well as the required parameters.
             let path = format!("https://api.github.com{}", fo.path);
-            if path_args.is_empty() {
-                quote!(#path) // prevent unnecessary cloning of a &'static str
+            let path_args = args
+                .iter()
+                .filter(|arg| arg.param.location() == schema::ParameterLocation::Path)
+                .peekable();
+            if path_args.peek().is_some() {
+                let fmt_args = path_args
+                    .map(|arg| {
+                        let format_name = Ident::new(arg.param.name(), Span::call_site());
+                        let field_name = idents::snake(arg.param.name());
+                        quote!(#format_name = self.#field_name,)
+                    })
+                    .collect::<TokenStream>();
+                quote!(&format!(#path, #fmt_args))
             } else {
-                let path_format_args = path_args.iter().map(|arg| {
-                    let format_name = Ident::new(arg.name(), Span::call_site());
-                    let field_name = idents::snake(arg.name());
-                    quote!(#format_name = self.#field_name)
-                });
-                quote!(&format!(#path, #(#path_format_args),*))
+                quote!(#path)
             }
         },
-        accept: quote!(#accept),
-        arg_setters: quote!(), // TODO
+        accept: {
+            let accept = args
+                .iter()
+                .filter_map(|arg| match &arg.required {
+                    Require::Accept(accept) => Some(accept.as_str()),
+                    _ => None,
+                })
+                .next()
+                .unwrap_or("application/vnd.github.v3+json"); // TODO handle accept header properly using ."x-github".previews
+            quote!(#accept)
+        },
+        arg_setters: Box::new(move || {
+            args.iter()
+                .filter(|arg| matches!(arg.required, Require::Optional))
+                .map(|arg| {
+                    let arg_field_name = &arg.field_name;
+                    let ty = &arg.ty.name();
+                    quote! {
+                        pub fn #arg_field_name(mut self, new: #ty) -> Self {
+                            self.#arg_field_name = new;
+                            Self
+                        }
+                    }
+                })
+                .collect::<TokenStream>()
+        }), // TODO
 
-        construct_builder_method: quote! {
-            #[doc = #method_doc]
-            pub fn #method_name(&self) -> #builder_name {
-                #builder_name {
-                    main: self.main,
-                    #required_arg_constrs
-                    #optional_arg_constrs
-                    _ph: Default::default(),
+        construct_builder_method: {
+            let arg_constrs = args
+                .iter()
+                .map(|arg| {
+                    let arg_field_name = &arg.field_name;
+                    match &arg.required {
+                        Require::Required => quote!(#arg_field_name),
+                        _ => quote!(),
+                    }
+                })
+                .collect::<TokenStream>();
+            Box::new(move || {
+                let method_args = args
+                    .iter()
+                    .filter(|arg| matches!(arg.required, Require::Required))
+                    .map(|arg| {
+                        let arg_field_name = &arg.field_name;
+                        let ty = &arg.ty.name();
+                        quote!(#arg_field_name: #ty)
+                    });
+                quote! {
+                    #[doc = #method_doc]
+                    pub fn #method_name(&self, #(#method_args,)*) -> #builder_name {
+                        #builder_name {
+                            main: self.main,
+                            #arg_constrs
+                            _ph: Default::default(),
+                        }
+                    }
                 }
-            }
+            })
         },
-        builder_struct: quote! {
-            #[doc = #builder_doc]
-            #[cfg(feature = #feature_name)]
-            pub struct #builder_name<'t, 'a> {
-                main: &'t Client,
-                #arg_fields
-                _ph: std::marker::PhantomData<&'a ()>,
-            }
+        builder_struct: {
+            let arg_fields = quote!(); // TODO
+
+            Box::new(move || {
+                quote! {
+                    #[doc = #builder_doc]
+                    #[cfg(feature = #feature_name)]
+                    pub struct #builder_name<'t, 'a> {
+                        main: &'t Client,
+                        #arg_fields
+                        _ph: std::marker::PhantomData<&'a ()>,
+                    }
+                }
+            })
         },
     }
 }

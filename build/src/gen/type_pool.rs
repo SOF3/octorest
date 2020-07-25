@@ -12,7 +12,7 @@ pub struct TypePool<'t> {
     // A `None` entry indicates that the name was once used,
     // and should not be used for future names.
     // A `Some` entry indicates that the name is currently used.
-    types: HashMap<String, Option<SchemaEntry<'t>>>,
+    types: HashMap<String, Option<Rc<SchemaEntry<'t>>>>,
 }
 
 impl<'t> TypePool<'t> {
@@ -20,7 +20,7 @@ impl<'t> TypePool<'t> {
         &mut self,
         name_components: impl Iterator<Item = String> + 't,
         schema: &schema::Schema,
-    ) -> TokenStream {
+    ) -> Rc<SchemaEntry> {
         unimplemented!()
     }
 
@@ -38,7 +38,7 @@ impl<'t> TypePool<'t> {
             entry.next_name();
         }
 
-        let _ = self.types.insert(entry.name.clone(), Some(entry)); // .expect_none()
+        let _ = self.types.insert(entry.name.clone(), Some(Rc::new(entry))); // .expect_none()
     }
 
     pub fn types_ts(self) -> TokenStream {
@@ -46,14 +46,16 @@ impl<'t> TypePool<'t> {
             .into_iter()
             .filter_map(|(_, option)| option) // only take real entries
             .map(|entry| {
-                let SchemaEntry { name, ts, .. } = entry;
+                let SchemaEntry { name, ts, .. } = Rc::try_unwrap(entry)
+                    .map_err(|_| "Rc should be unique at this state unique")
+                    .unwrap();
                 ts(idents::pascal(&name))
             })
             .collect()
     }
 }
 
-struct SchemaEntry<'t> {
+pub struct SchemaEntry<'t> {
     name: String,
     next_names: Box<dyn Iterator<Item = String> + 't>,
     ts: Box<dyn FnOnce(Ident) -> TokenStream + 't>,
@@ -78,5 +80,9 @@ impl<'t> SchemaEntry<'t> {
             .next()
             .expect("next_names request returns None");
         self.name = format!("{} {}", self.name, next_part);
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 }
