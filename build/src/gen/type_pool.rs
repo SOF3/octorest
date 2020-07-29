@@ -49,7 +49,8 @@ impl<'t> TypePool<'t> {
             entry.next_name();
         }
 
-        let _ = types.insert(entry.name.clone(), Some(Rc::new(RefCell::new(entry)))); // .expect_none()
+        let _ = types.insert(entry.name.clone(), Some(Rc::new(RefCell::new(entry))));
+        // .expect_none()
     }
 
     pub fn types_ts(self) -> TokenStream {

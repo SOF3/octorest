@@ -61,7 +61,13 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
         let mut build_br = Vec::new();
         for fo in opers {
             if operation_id_to_tag(fo.operation.operation_id()) == mod_ {
-                build_br.push(create_endpoint(mod_, Rc::clone(&tag_struct), Rc::clone(&feature_name), fo, &type_pool));
+                build_br.push(create_endpoint(
+                    mod_,
+                    Rc::clone(&tag_struct),
+                    Rc::clone(&feature_name),
+                    fo,
+                    &type_pool,
+                ));
             }
         }
 
@@ -146,7 +152,10 @@ fn create_endpoint<'t, 'p>(
 
     let method_name = Rc::new(idents::snake(&operation_name));
 
-    let builder_name = Rc::new(idents::pascal(&format!("{} {} builder", tag, &operation_name)));
+    let builder_name = Rc::new(idents::pascal(&format!(
+        "{} {} builder",
+        tag, &operation_name
+    )));
 
     let http_method = idents::snake(fo.method);
 
@@ -395,7 +404,7 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
                     }
                 })
                 .collect::<TokenStream>();
-                let builder_name = builder_name.clone();
+            let builder_name = builder_name.clone();
 
             Box::new(move || {
                 let method_name = method_name.as_ref();
