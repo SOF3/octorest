@@ -55,13 +55,13 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
     for &mod_ in &mods {
         let getter_method = idents::snake(mod_);
         let doc_line = format!("{} API", mod_.to_title_case());
-        let feature_name = format!("gh-{}", mod_.to_kebab_case());
-        let tag_struct = idents::pascal(&format!("{} API", mod_));
+        let feature_name = Rc::from(format!("gh-{}", mod_.to_kebab_case()));
+        let tag_struct = Rc::new(idents::pascal(&format!("{} API", mod_)));
 
         let mut build_br = Vec::new();
         for fo in opers {
             if operation_id_to_tag(fo.operation.operation_id()) == mod_ {
-                build_br.push(create_endpoint(mod_, &tag_struct, &feature_name, fo, &type_pool));
+                build_br.push(create_endpoint(mod_, Rc::clone(&tag_struct), Rc::clone(&feature_name), fo, &type_pool));
             }
         }
 
@@ -137,16 +137,16 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
 /// - The second entry is the builder and response definitions, outside the `impl` block.
 fn create_endpoint<'t, 'p>(
     tag: &'t str,
-    tag_struct: &'t Ident,
-    feature_name: &'t str,
+    tag_struct: impl AsRef<Ident> + Clone + 't,
+    feature_name: impl AsRef<str> + Clone + 't,
     fo: &'t FullOperation<'t>,
     type_pool: &TypePool<'p>, // the returned closure does not use &TypePool
 ) -> impl FnOnce() -> (TokenStream, TokenStream) + 't {
     let operation_name = operation_id_to_name(fo.operation.operation_id());
 
-    let method_name = idents::snake(&operation_name);
+    let method_name = Rc::new(idents::snake(&operation_name));
 
-    let builder_name = idents::pascal(&format!("{} {} builder", tag, &operation_name));
+    let builder_name = Rc::new(idents::pascal(&format!("{} {} builder", tag, &operation_name)));
 
     let http_method = idents::snake(fo.method);
 
@@ -158,10 +158,10 @@ fn create_endpoint<'t, 'p>(
         builder_struct,
     } = format_args(
         &fo,
-        feature_name,
-        tag_struct,
-        method_name.clone(),
-        builder_name.clone(),
+        feature_name.clone(),
+        tag_struct.clone(),
+        Rc::clone(&method_name),
+        Rc::clone(&builder_name),
         type_pool,
     );
 
@@ -172,10 +172,10 @@ fn create_endpoint<'t, 'p>(
         status_arms,
     } = format_resp(
         &fo,
-        feature_name,
+        feature_name.clone(),
         tag,
         tag_struct,
-        method_name.clone(),
+        Rc::clone(&method_name),
         &operation_name,
     );
 
@@ -204,9 +204,11 @@ fn create_endpoint<'t, 'p>(
         }
     };
 
-    drop(type_pool);
+    #[allow(clippy::drop_ref)]
+    drop(type_pool); // this is to check that type_pool is not used in the returned closure.
 
     move || {
+        let feature_name_ref = feature_name.as_ref();
         let construct_builder_method = construct_builder_method();
         let builder_struct = builder_struct();
         let arg_setters = arg_setters();
@@ -217,7 +219,7 @@ fn create_endpoint<'t, 'p>(
             quote! {
                 #builder_struct
 
-                #[cfg(feature = #feature_name)]
+                #[cfg(feature = #feature_name_ref)]
                 impl<'t, 'a> #builder_name<'t, 'a> {
                     #arg_setters
 
@@ -255,10 +257,10 @@ struct FormattedArgs<'t> {
 
 fn format_args<'p, 't>(
     fo: &'t FullOperation<'_>,
-    feature_name: &'t str,
-    tag_struct: &'t Ident,
-    method_name: Ident,
-    builder_name: Ident,
+    feature_name: impl AsRef<str> + Clone + 't,
+    tag_struct: impl AsRef<Ident> + Clone + 't,
+    method_name: impl AsRef<Ident> + Clone + 't,
+    builder_name: impl AsRef<Ident> + Clone + 't,
     type_pool: &TypePool<'p>, // the returned closures should not use type_pool
 ) -> FormattedArgs<'t> {
     let method_doc = format!(
@@ -271,8 +273,8 @@ fn format_args<'p, 't>(
         r"Request builder for `{method}`.
 
 See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
-        method = &method_name,
-        tag = &tag_struct,
+        method = method_name.as_ref(),
+        tag = tag_struct.as_ref(),
     );
 
     struct ProcessedArg<'t, 'p> {
@@ -331,11 +333,14 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
             }
         })
         .collect::<Vec<_>>();
+    let args = Rc::<[_]>::from(args);
+    let args_clone = Rc::clone(&args);
+    let args_clone2 = Rc::clone(&args);
 
     FormattedArgs {
         path: {
             let path = format!("https://api.github.com{}", fo.path);
-            let path_args = args
+            let mut path_args = args
                 .iter()
                 .filter(|arg| arg.param.location() == schema::ParameterLocation::Path)
                 .peekable();
@@ -380,7 +385,7 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
         }), // TODO
 
         construct_builder_method: {
-            let arg_constrs = args
+            let arg_constrs = args_clone
                 .iter()
                 .map(|arg| {
                     let arg_field_name = &arg.field_name;
@@ -390,8 +395,13 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
                     }
                 })
                 .collect::<TokenStream>();
+                let builder_name = builder_name.clone();
+
             Box::new(move || {
-                let method_args = args
+                let method_name = method_name.as_ref();
+                let builder_name = builder_name.as_ref();
+
+                let method_args = args_clone2
                     .iter()
                     .filter(|arg| matches!(arg.required, Require::Required))
                     .map(|arg| {
@@ -415,6 +425,9 @@ See the documentation of [`{method}`](struct.{tag}Api.html#method.{method})",
             let arg_fields = quote!(); // TODO
 
             Box::new(move || {
+                let feature_name = feature_name.as_ref();
+                let builder_name = builder_name.as_ref();
+
                 quote! {
                     #[doc = #builder_doc]
                     #[cfg(feature = #feature_name)]
@@ -438,12 +451,16 @@ struct FormattedResp {
 
 fn format_resp(
     fo: &FullOperation,
-    feature_name: &str,
+    feature_name: impl AsRef<str>,
     tag: &str,
-    tag_struct: &Ident,
-    method_name: Ident,
+    tag_struct: impl AsRef<Ident>,
+    method_name: impl AsRef<Ident>,
     operation_name: &str,
 ) -> FormattedResp {
+    let feature_name = feature_name.as_ref();
+    let tag_struct = tag_struct.as_ref();
+    let method_name = method_name.as_ref();
+
     struct ProcessedResponse<'t> {
         status: u16,
         resp: &'t schema::Response,
@@ -457,7 +474,7 @@ fn format_resp(
         r"Response for `{method}`.
 
 See the documentation of [`{method}`](struct.{tag}Api.html#method.{method}) for more information.",
-        method = &method_name,
+        method = method_name,
         tag = &tag_struct,
     );
 
