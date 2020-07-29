@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use heck::{KebabCase, TitleCase};
 use itertools::Itertools;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, ToTokens};
@@ -50,22 +51,21 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
     let mut type_pool = TypePool::default();
 
     // Returns a closure to be called after type_pool is no longer required.
-    let apis = mods.iter().map(|&mod_| {
+    let mut apis = Vec::new();
+    for &mod_ in &mods {
         let getter_method = idents::snake(mod_);
-        let doc_line = &format!("{} API", heck::TitleCase::to_title_case(mod_));
-        let feature_name = &format!("gh-{}", heck::KebabCase::to_kebab_case(mod_));
+        let doc_line = format!("{} API", mod_.to_title_case());
+        let feature_name = format!("gh-{}", mod_.to_kebab_case());
         let tag_struct = idents::pascal(&format!("{} API", mod_));
 
-        let mut_type_pool = &mut type_pool;
-        let build_br = opers
-            .iter()
-            .filter(|fo| operation_id_to_tag(fo.operation.operation_id()) == mod_)
-            .map(|fo| create_endpoint(mod_, &tag_struct, &feature_name, fo, mut_type_pool));
+        let mut build_br = Vec::new();
+        for fo in opers {
+            if operation_id_to_tag(fo.operation.operation_id()) == mod_ {
+                build_br.push(create_endpoint(mod_, &tag_struct, &feature_name, fo, &mut type_pool));
+            }
+        }
 
-        let build_br = build_br.collect::<Vec<_>>();
-        drop(mut_type_pool); // this drop statement checks that &mut type_pool is not used below
-
-        move || {
+        let f = move || {
             let (endpoints, br_types): (TokenStream, TokenStream) =
                 build_br.into_iter().map(|f| f()).unzip();
             (
@@ -94,10 +94,9 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
                 },
                 br_types,
             )
-        }
-    });
-
-    let apis = apis.collect::<Vec<_>>(); // type_pool is resolved here
+        };
+        apis.push(f);
+    }
 
     let types_ts = type_pool.types_ts(); // type_pool is dropped in this statement
 
@@ -161,8 +160,8 @@ fn create_endpoint<'t, 'p>(
         &fo,
         feature_name,
         tag_struct,
-        &method_name,
-        &builder_name,
+        method_name.clone(),
+        builder_name.clone(),
         type_pool,
     );
 
@@ -176,7 +175,7 @@ fn create_endpoint<'t, 'p>(
         feature_name,
         tag,
         tag_struct,
-        &method_name,
+        method_name.clone(),
         &operation_name,
     );
 
@@ -258,8 +257,8 @@ fn format_args<'p, 't>(
     fo: &'t FullOperation<'_>,
     feature_name: &'t str,
     tag_struct: &'t Ident,
-    method_name: &'t Ident,
-    builder_name: &'t Ident,
+    method_name: Ident,
+    builder_name: Ident,
     type_pool: &mut TypePool<'p>, // the returned closures should not use type_pool
 ) -> FormattedArgs<'t> {
     let method_doc = format!(
@@ -442,7 +441,7 @@ fn format_resp(
     feature_name: &str,
     tag: &str,
     tag_struct: &Ident,
-    method_name: &Ident,
+    method_name: Ident,
     operation_name: &str,
 ) -> FormattedResp {
     struct ProcessedResponse<'t> {
