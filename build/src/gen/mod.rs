@@ -48,7 +48,7 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
         .collect::<Vec<_>>();
 
     // Type pool for reusing structs generated from Schema, to be located in `octorest::types`.
-    let mut type_pool = TypePool::default();
+    let type_pool = TypePool::default();
 
     // Returns a closure to be called after type_pool is no longer required.
     let mut apis = Vec::new();
@@ -61,7 +61,7 @@ pub fn gen(index: schema::Index) -> (TokenStream, TokenStream) {
         let mut build_br = Vec::new();
         for fo in opers {
             if operation_id_to_tag(fo.operation.operation_id()) == mod_ {
-                build_br.push(create_endpoint(mod_, &tag_struct, &feature_name, fo, &mut type_pool));
+                build_br.push(create_endpoint(mod_, &tag_struct, &feature_name, fo, &type_pool));
             }
         }
 
@@ -140,7 +140,7 @@ fn create_endpoint<'t, 'p>(
     tag_struct: &'t Ident,
     feature_name: &'t str,
     fo: &'t FullOperation<'t>,
-    type_pool: &mut TypePool<'p>, // the returned closure does not use &mut TypePool
+    type_pool: &TypePool<'p>, // the returned closure does not use &TypePool
 ) -> impl FnOnce() -> (TokenStream, TokenStream) + 't {
     let operation_name = operation_id_to_name(fo.operation.operation_id());
 
@@ -259,7 +259,7 @@ fn format_args<'p, 't>(
     tag_struct: &'t Ident,
     method_name: Ident,
     builder_name: Ident,
-    type_pool: &mut TypePool<'p>, // the returned closures should not use type_pool
+    type_pool: &TypePool<'p>, // the returned closures should not use type_pool
 ) -> FormattedArgs<'t> {
     let method_doc = format!(
         "{}\n\n{}\n\n# See also\n- [GitHub Developer Guide]({})",
