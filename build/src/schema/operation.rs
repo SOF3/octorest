@@ -51,7 +51,7 @@ impl<'de, T: for<'t> Deserialize<'t>> Deserialize<'de> for MaybeRef<T> {
 #[getset(get = "pub")]
 pub struct Ref {
     #[serde(rename = "$ref")]
-    target: String,
+    pub target: String,
 }
 
 #[derive(Deserialize, Getters, CopyGetters)]
@@ -106,6 +106,7 @@ impl Responses {
 #[getset(get = "pub")]
 pub struct Response {
     description: Option<String>,
+    // key is mime type, usually application/json
     #[serde(default)]
     content: HashMap<String, MediaType>,
 }

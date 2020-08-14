@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use getset::{Getters, MutGetters};
 use serde::Deserialize;
 
-use super::{Parameter, Schema};
+use super::{MaybeRef, MediaType, Parameter, Ref, Response, Schema};
 
 #[derive(Deserialize, Getters, MutGetters)]
 #[serde(rename_all = "camelCase")]
@@ -71,8 +71,35 @@ impl PathItem {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Getters)]
+#[serde(deny_unknown_fields)]
 pub struct Components {
-    schemas: HashMap<String, Schema>,
+    #[getset(get = "pub")]
     parameters: HashMap<String, Parameter>,
+    #[getset(get = "pub")]
+    schemas: HashMap<String, Schema>,
+    #[getset(get = "pub")]
+    examples: HashMap<String, serde_json::Value>, // unused
+    #[getset(get = "pub")]
+    headers: HashMap<String, MediaType>,
+    #[getset(get = "pub")]
+    responses: HashMap<String, Response>,
+}
+
+impl Components {
+    pub fn resolve_schema<'t>(&'t self, mr: &'t MaybeRef<Schema>) -> &'t Schema {
+        match mr {
+            MaybeRef::Owned(schema) => schema,
+            MaybeRef::Ref(Ref { target }) => {
+                if let Some(name) = target.strip_prefix("#/components/schemas/") {
+                    match self.schemas.get(name) {
+                        Some(schema) => schema,
+                        None => panic!("Schema {:?} not found", target),
+                    }
+                } else {
+                    panic!("Schema {:?} not found", target)
+                }
+            }
+        }
+    }
 }

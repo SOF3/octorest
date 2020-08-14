@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -5,6 +6,7 @@ use getset::{CopyGetters, Getters};
 use serde::{de::Error, Deserialize, Deserializer};
 
 use super::MaybeRef;
+use crate::gen::TreeHandle;
 
 #[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +30,10 @@ pub struct Schema {
     read_only: bool,
     #[getset(get_copy = "pub")]
     min_items: Option<usize>, // only used in ArraySchema::items
+
+    #[serde(skip)]
+    #[getset(get = "pub")]
+    tree_handle: RefCell<Option<TreeHandle>>,
 }
 
 #[derive(Debug, Clone)]

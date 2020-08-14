@@ -1,6 +1,6 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_variables))]
 
-use std::{env, fs, io, path::Path, path::PathBuf};
+use std::{env, fmt, fs, io, path::Path, path::PathBuf};
 
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
@@ -69,23 +69,16 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }*/
     };
 
-    let out = out_dir.join("out.rs");
-    let types = out_dir.join("types.rs");
-    let mut out = fs::File::create(out)?;
-    let mut types = fs::File::create(types)?;
+    let out_path = out_dir.join("out.rs");
+    let mut out = fs::File::create(&out_path)?;
 
-    let (ts_out, ts_types) = run(&json_path)?;
+    let index = task("Parsing api.github.com.json", || schema::parse(&json_path))?;
+    let ts_out = task("Generating code", || gen::gen(index));
 
-    write_token_stream(ts_out, &mut out, 0, &mut true)?;
-    write_token_stream(ts_types, &mut types, 0, &mut true)?;
+    task(&format_args!("Writing to {}", out_path.display()), || {
+        write_token_stream(ts_out, &mut out, 0, &mut true)
+    })?;
     Ok(())
-}
-
-fn run(json_path: &Path) -> io::Result<(TokenStream, TokenStream)> {
-    let index = schema::parse(json_path)?;
-    let (apis, types) = gen::gen(index);
-
-    Ok((apis, types))
 }
 
 fn write_token_stream(
@@ -148,4 +141,15 @@ fn write_token_stream(
         }
     }
     Ok(())
+}
+
+fn task<R>(name: &(impl fmt::Display + ?Sized), f: impl FnOnce() -> R) -> R {
+    use std::time::Instant;
+
+    println!("[Phase start] {}", name);
+    let start = Instant::now();
+    let r = f();
+    let end = Instant::now();
+    println!("[Phase end] {} (spent {:?})", name, end - start);
+    r
 }

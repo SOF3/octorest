@@ -20,10 +20,4 @@ pub enum TransportError {
     UnexpectedStatus { status: u16 },
 }
 
-pub mod apis {
-    include!(concat!(env!("OUT_DIR"), "/out.rs"));
-}
-
-pub mod types {
-    include!(concat!(env!("OUT_DIR"), "/types.rs"));
-}
+include!(concat!(env!("OUT_DIR"), "/out.rs"));
