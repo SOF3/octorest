@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use getset::{Getters, MutGetters};
 use serde::Deserialize;
 
+use super::{Parameter, Schema};
+
 #[derive(Deserialize, Getters, MutGetters)]
 #[serde(rename_all = "camelCase")]
 #[getset(get = "pub")]
@@ -10,6 +12,7 @@ pub struct Index {
     info: Info,
     external_docs: ExternalDocs,
     paths: Paths,
+    components: Components,
 }
 
 #[derive(Deserialize, Getters)]
@@ -33,8 +36,8 @@ pub struct License {
 #[derive(Deserialize, Getters)]
 #[getset(get = "pub")]
 pub struct Contact {
-    name: String,
-    email: String,
+    name: Option<String>,
+    email: Option<String>,
 }
 
 #[derive(Deserialize, Getters)]
@@ -66,4 +69,10 @@ impl PathItem {
     pub fn get(&self) -> &HashMap<String, super::Operation> {
         &self.0
     }
+}
+
+#[derive(Deserialize)]
+pub struct Components {
+    schemas: HashMap<String, Schema>,
+    parameters: HashMap<String, Parameter>,
 }

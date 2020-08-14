@@ -9,7 +9,7 @@ jobs:
         with:
           toolchain: nightly
           profile: default
-      - run: "wget -O build/api.github.com.json $(curl -H \"Authorization: header ${{secrets.GH_TOKEN}}\" https://api.github.com/repos/octokit/routes/releases/latest | jq -r '.assets | map(select(.name == \"api.github.com.json\")) | first | .browser_download_url')"
+      - run: "wget -O build/api.github.com.json https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json"
       - run: cargo +nightly doc --no-deps --features internal-docsrs
       - run: git fetch && git checkout gh-pages
       - run: test ! -d $(echo ${{github.ref}} | cut -d/ -f3) || rm -r $(echo ${{github.ref}} | cut -d/ -f3)

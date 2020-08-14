@@ -1,6 +1,7 @@
+#![cfg_attr(debug_assertions, allow(dead_code, unused_variables))]
+
 use std::{env, fs, io, path::Path, path::PathBuf};
 
-use cfg_if::cfg_if;
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
 macro_rules! err {
@@ -37,7 +38,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_path = if pkg_path.exists() {
         pkg_path
     } else {
-        cfg_if! {
+        todo!("Download latest version of https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json")
+        /*cfg_if! {
             if #[cfg(feature = "online")] {
                 let client = reqwest::blocking::Client::new();
                 let data = client.get("https://api.github.com/repos/octokit/routes/releases/latest")
@@ -64,7 +66,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 return Err(Box::new(io::Error::new(io::ErrorKind::Other, "`online` feature not enabled, but no packaged api.github.com.json is available")));
             }
-        }
+        }*/
     };
 
     let out = out_dir.join("out.rs");

@@ -1,16 +1,19 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::hash::Hash;
 
 use getset::{CopyGetters, Getters};
 use serde::{de::Error, Deserialize, Deserializer};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Getters, CopyGetters)]
+use super::MaybeRef;
+
+#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 pub struct Schema {
     #[serde(flatten)]
     #[getset(get = "pub")]
     typed: Typed,
+    #[getset(get = "pub")]
+    title: Option<String>,
     #[getset(get = "pub")]
     description: Option<String>,
     #[serde(default)]
@@ -19,17 +22,22 @@ pub struct Schema {
     #[serde(default)]
     #[getset(get_copy = "pub")]
     deprecated: bool,
+    #[getset(get = "pub")]
+    example: Option<serde_json::Value>,
+    #[serde(default)]
+    read_only: bool,
+    #[getset(get_copy = "pub")]
+    min_items: Option<usize>, // only used in ArraySchema::items
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub enum Typed {
     String(StringSchema),
     Integer(IntegerSchema),
     Number(NumberSchema),
+    Boolean(BooleanSchema),
     Object(ObjectSchema),
     Array(ArraySchema),
-    Boolean(BooleanSchema),
-    Unknown,
 }
 
 impl Typed {
@@ -41,7 +49,6 @@ impl Typed {
             Self::Boolean(s) => s.default.is_some(),
             Self::Object(s) => s.default.is_some(),
             Self::Array(s) => s.default.is_some(),
-            Self::Unknown => false,
         }
     }
 }
@@ -49,12 +56,14 @@ impl Typed {
 impl<'de> Deserialize<'de> for Typed {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let mut value = serde_json::Map::<String, serde_json::Value>::deserialize(d)?;
+
+        fn me<E: Error>(err: impl fmt::Display) -> E {
+            E::custom(err)
+        }
+
         if let Some(ty) = value.remove("type") {
             if let serde_json::Value::String(str) = ty {
                 let value = serde_json::Value::Object(value);
-                fn me<E: Error>(err: impl fmt::Display) -> E {
-                    E::custom(err)
-                }
                 match str.as_ref() {
                     "string" => {
                         return Ok(Typed::String(serde_json::from_value(value).map_err(me)?))
@@ -72,15 +81,25 @@ impl<'de> Deserialize<'de> for Typed {
                     "boolean" => {
                         return Ok(Typed::Boolean(serde_json::from_value(value).map_err(me)?))
                     }
-                    _ => (),
+                    _ => panic!("unknown type: {:?}", value),
                 }
             }
         }
-        Ok(Typed::Unknown)
+
+        if value.get("items").is_some() {
+            return Ok(Typed::Array(
+                serde_json::from_value(value.into()).map_err(me)?,
+            ));
+        }
+
+        // assume object
+        Ok(Typed::Object(
+            serde_json::from_value(value.into()).map_err(me)?,
+        ))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct StringSchema {
@@ -89,20 +108,30 @@ pub struct StringSchema {
     #[getset(get = "pub")]
     enum_: Option<Vec<String>>,
     #[getset(get = "pub")]
-    #[serde(default)]
-    #[allow(dead_code)]
     pattern: Option<String>,
+    #[getset(get = "pub")]
+    format: Option<String>,
+    #[getset(get_copy = "pub")]
+    min_length: Option<usize>,
+    #[getset(get_copy = "pub")]
+    max_length: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct IntegerSchema {
     #[getset(get_copy = "pub")]
     default: Option<i64>,
+    #[getset(get = "pub")]
+    format: Option<String>,
+    #[getset(get_copy = "pub")]
+    maximum: Option<i64>,
+    #[getset(get_copy = "pub")]
+    minimum: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct NumberSchema {
@@ -110,16 +139,7 @@ pub struct NumberSchema {
     default: Option<f64>,
 }
 
-impl Eq for NumberSchema {} // only expect finite numbers here
-
-#[allow(clippy::derive_hash_xor_eq)]
-impl std::hash::Hash for NumberSchema {
-    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
-        // we don't care about the default
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct BooleanSchema {
@@ -127,53 +147,49 @@ pub struct BooleanSchema {
     default: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct ObjectSchema {
     #[getset(get = "pub")]
-    #[serde(default)]
     default: Option<serde_json::Map<String, serde_json::Value>>,
     #[getset(get = "pub")]
     #[serde(default)]
     required: Vec<String>,
     #[getset(get = "pub")]
     #[serde(default)]
-    properties: HashMap<String, Schema>,
+    properties: HashMap<String, MaybeRef<Schema>>,
     #[getset(get = "pub")]
-    #[serde(default)]
-    additional_properties: Option<Box<Schema>>,
+    additional_properties: Option<AdditionalProperties>,
+    #[getset(get_copy = "pub")]
+    max_properties: Option<usize>,
+    #[getset(get = "pub")]
+    any_of: Option<Vec<MaybeRef<Schema>>>,
+    #[getset(get = "pub")]
+    one_of: Option<Vec<MaybeRef<Schema>>>,
+    #[getset(get = "pub")]
+    all_of: Option<Vec<MaybeRef<Schema>>>,
 }
 
-#[allow(clippy::derive_hash_xor_eq)]
-impl Hash for ObjectSchema {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // we don't care about the default
-        self.required.hash(state);
-
-        let mut properties = self.properties.iter().collect::<Vec<_>>();
-        properties.sort_by(|a, b| a.0.cmp(b.0));
-        properties.hash(state);
-
-        self.additional_properties.hash(state);
-    }
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+#[serde(deny_unknown_fields)]
+pub enum AdditionalProperties {
+    Schema(MaybeRef<Box<Schema>>),
+    Bool(bool),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct ArraySchema {
     #[getset(get = "pub")]
-    #[serde(default)]
     default: Option<Vec<serde_json::Value>>,
     #[getset(get = "pub")]
-    items: Box<Schema>,
-}
-
-#[allow(clippy::derive_hash_xor_eq)]
-impl Hash for ArraySchema {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // we don't care about the default
-        self.items.hash(state);
-    }
+    items: MaybeRef<Box<Schema>>,
+    #[getset(get_copy = "pub")]
+    min_items: Option<usize>,
+    // unused, probably documentation bug
+    #[getset(get = "pub")]
+    required: Option<serde_json::Value>,
 }

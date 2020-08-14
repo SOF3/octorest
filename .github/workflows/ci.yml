@@ -34,5 +34,6 @@ jobs:
           toolchain: ${{matrix.toolchain}}
           profile: default
           default: true
+      - run: "wget -O build/api.github.com.json https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json"
       - name: cargo clippy
         run: "cargo clippy --all ${{matrix.stability}}"
