@@ -5,7 +5,7 @@ use smallvec::{smallvec, SmallVec};
 use self::from_schema::schema_to_def;
 pub use self::tree::TreeHandle;
 use self::tree::{NameComponent, NameTree, NameTreeResolve};
-use self::types::{TypeDef, Types};
+use self::types::{TypeDef, Types, Lifetime};
 use crate::schema;
 
 mod from_schema;
@@ -26,7 +26,7 @@ pub fn gen(index: schema::Index) -> TokenStream {
     crate::task("Generate types for .components.parameters", || {
         for (name, param) in index.components().parameters() {
             types.insert_schema::<&str, SmallVec<[_; 4]>>(
-                index.components().resolve_schema(param.schema()),
+                index.components().resolve_schema(param.schema(), crate::id),
                 smallvec![&**name, "param", "comp", ""],
             );
         }
@@ -34,7 +34,7 @@ pub fn gen(index: schema::Index) -> TokenStream {
     crate::task("Generate types for .components.headers", || {
         for (name, media_type) in index.components().headers() {
             types.insert_schema::<&str, SmallVec<[_; 4]>>(
-                index.components().resolve_schema(media_type.schema()),
+                index.components().resolve_schema(media_type.schema(), crate::id),
                 smallvec![&**name, "header", "comp", ""],
             );
         }
@@ -43,7 +43,7 @@ pub fn gen(index: schema::Index) -> TokenStream {
         for (name, response) in index.components().responses() {
             for (mime, media_type) in response.content() {
                 types.insert_schema::<&str, SmallVec<[_; 4]>>(
-                    index.components().resolve_schema(media_type.schema()),
+                    index.components().resolve_schema(media_type.schema(), crate::id),
                     smallvec![&**name, "response", "comp", ""],
                 );
             }

@@ -155,3 +155,5 @@ fn task<R>(name: &(impl fmt::Display + ?Sized), f: impl FnOnce() -> R) -> R {
     println!("[Phase end] {} (spent {:?})", name, end - start);
     r
 }
+
+fn id<T>(t: T) -> T { t }

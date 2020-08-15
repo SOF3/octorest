@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops;
 
 use getset::{CopyGetters, Getters};
 use serde::{de::IgnoredAny, Deserialize, Deserializer};
@@ -33,6 +34,14 @@ pub struct Schema<'sch> {
     #[serde(skip)]
     #[getset(get = "pub")]
     tree_handle: RefCell<Option<TreeHandle>>,
+}
+
+impl<'sch> Schema<'sch> {
+    pub fn tree_handle_mut<R>(&self, f: impl FnOnce(&mut Option<TreeHandle>) -> R) -> R {
+        let rm = self.tree_handle.try_borrow_mut()
+            .expect("Recursive type definition detected");
+        f(&*rm)
+    }
 }
 
 #[derive(Debug, Clone)]

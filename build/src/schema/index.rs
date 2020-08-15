@@ -1,5 +1,6 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::ops;
 
 use getset::{Getters, MutGetters};
 use serde::de::IgnoredAny;
@@ -88,21 +89,22 @@ impl<'sch> PathItem<'sch> {
 pub struct Components<'sch> {
     #[serde(borrow)]
     #[getset(get = "pub")]
-    parameters: HashMap<Cow<'sch, str>, Parameter<'sch>>,
+    parameters: BTreeMap<Cow<'sch, str>, Parameter<'sch>>,
     #[getset(get = "pub")]
-    schemas: HashMap<Cow<'sch, str>, Schema<'sch>>,
+    schemas: BTreeMap<Cow<'sch, str>, Schema<'sch>>,
     #[getset(get = "pub")]
-    examples: IgnoredAny, // unused
+    examples: IgnoredAny,
     #[getset(get = "pub")]
-    headers: HashMap<Cow<'sch, str>, MediaType<'sch>>,
+    headers: BTreeMap<Cow<'sch, str>, MediaType<'sch>>,
     #[getset(get = "pub")]
-    responses: HashMap<Cow<'sch, str>, Response<'sch>>,
+    responses: BTreeMap<Cow<'sch, str>, Response<'sch>>,
 }
 
 impl<'sch> Components<'sch> {
-    pub fn resolve_schema<'t>(&'t self, mr: &'t MaybeRef<Schema>) -> &'t Schema {
+    pub fn resolve_schema<'t, S, F>(&'t self, mr: &'t MaybeRef<'sch, S>, f: F) -> &'t Schema<'sch> 
+    where F: FnOnce(&'t S) -> &'t Schema<'sch>,{
         match mr {
-            MaybeRef::Owned(schema) => schema,
+            MaybeRef::Owned(schema) => f(schema),
             MaybeRef::Ref(Ref { target }) => {
                 if let Some(name) = target.strip_prefix("#/components/schemas/") {
                     match self.schemas.get(name) {

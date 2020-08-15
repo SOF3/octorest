@@ -19,9 +19,10 @@ pub struct NameTree<'t> {
 impl<'t> NameTree<'t> {
     /// `name_iter` is the iterator that yields next name copmonents.
     /// In the output ident, the order of strings created by `name_iter` will be reversed.  `name_iter` must not yield empty strings, except for the trailing *one* item.
-    pub fn insert<C: 't>(&mut self, name_iter: impl IntoIterator<Item = C> + 't) -> TreeHandle
+    pub fn insert<C: 't, I>(&mut self, name_iter: I) -> TreeHandle
     where
         NameComponent<'t>: From<C>,
+        I: IntoIterator<Item = C> + 't,
     {
         let mut name_iter = name_iter.into_iter().map(NameComponent::from);
 
@@ -70,23 +71,11 @@ impl<'t> NameTree<'t> {
 
     pub fn resolve(self) -> NameTreeResolve {
         let mut ret = (0..self.next_handle).map(|_| None).collect::<Vec<_>>();
-        for (key, value) in self.map {
+        for (mut key, value) in self.map {
             if let Some(tree_entry) = value {
-                let mut parts =
-                    key.split(|comp| matches!(comp, NameComponent::ModSep))
-                        .map(|comps| {
-                            comps
-                                .iter()
-                                .map(|comp| match comp {
-                                    NameComponent::Text(cow) => cow.as_ref(),
-                                    _ => unreachable!("excluded in split()"),
-                                })
-                                .collect::<Vec<_>>()
-                        });
-                let ident = parts.next().expect("split is nonempty");
-                let ident = idents::pascal(&ident.join(" "));
-                let fqn = parts.map(|comps| idents::snake(&comps.join(" ")));
-                let path = quote!(#(#fqn ::)* #ident);
+                key.reverse();
+                let ident = idents::pascal(&key.join(" "));
+                let path = quote!(crate::types::#ident);
                 ret[tree_entry.handle.0] = Some(ResolvedEntry { ident, path });
             }
         }
@@ -94,30 +83,7 @@ impl<'t> NameTree<'t> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum NameComponent<'t> {
-    Text(Cow<'t, str>),
-    ModSep,
-}
-
-impl<'t> From<&'t str> for NameComponent<'t> {
-    fn from(s: &'t str) -> Self {
-        Self::Text(Cow::Borrowed(s))
-    }
-}
-
-// adding this speical case since it's frequently used
-impl<'u, 't> From<&'u &'t str> for NameComponent<'t> {
-    fn from(s: &'u &'t str) -> Self {
-        Self::Text(Cow::Borrowed(*s))
-    }
-}
-
-impl<'t> From<String> for NameComponent<'t> {
-    fn from(s: String) -> Self {
-        Self::Text(Cow::Owned(s))
-    }
-}
+pub type NameComponent<'t> = Cow<'t, str>;
 
 struct TreeEntry<'t> {
     name_iter: Box<dyn Iterator<Item = NameComponent<'t>> + 't>,

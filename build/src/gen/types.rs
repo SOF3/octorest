@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -11,19 +13,27 @@ pub struct Types<'t> {
 }
 
 impl<'t> Types<'t> {
-    pub fn insert_schema<C: 't, I>(&mut self, schema: &'t schema::Schema, name_iter: I)
+    pub fn insert_schema<C: 't, I>(&mut self, index: &'t schema::Index, schema: &'t schema::Schema, name_iter: I)
     where
         NameComponent<'t>: From<C>,
-        I: IntoIterator<Item = C> + 't,
+        I: IntoIterator<Item = C> + Clone + 't,
     {
         let mut handle = schema.tree_handle().borrow_mut();
         if handle.is_none() {
             let def = schema_to_def(
-                || {
-                    let h = self.tree.insert(name_iter);
+                |last| {
+                    let mut name_iter = name_iter.clone().into_iter().map(NameComponent::from);
+                    let mut next = name_iter.next();
+                    if last != "" {
+                        next = next.map(|cow| Cow::Owned(format!("{} {}", cow, last)));
+                    }
+
+                    let h = self.tree.insert::<NameComponent<'t>, _>(next.into_iter().chain(name_iter));
                     *handle = Some(h);
                     h
                 },
+                self,
+                index,
                 schema,
             );
             self.defs.push(def);
@@ -46,7 +56,7 @@ pub struct TypeDef<'t> {
     /// The type definition, if any
     pub def: Box<dyn FnOnce(&NameTreeResolve) -> TokenStream + 't>,
     /// whether the type takes a lifetime
-    pub has_lifetime: bool,
+    pub lifetime: Lifetime,
     /// The argument type in builder, using lifetime `'ser` if `self.has_lifetime`
     pub as_arg: Box<dyn FnOnce(&NameTreeResolve) -> TokenStream + 't>,
     /// The processing code to convert `as_arg` to `as_ser`.
@@ -62,4 +72,12 @@ pub struct TypeDef<'t> {
     // add this if it's found necessary
     // /// An expression to create the default value
     // pub default: Option<Box<dyn FnOnce(&NameTreeResolve) -> TokenStream + 't>>,
+}
+
+bitflags::bitflags! {
+    pub struct Lifetime: u8 {
+        const ARGUMENT = 1;
+        const SER = 2;
+        const DESER = 4;
+    }
 }
