@@ -19,7 +19,7 @@ pub fn gen(index: schema::Index) -> TokenStream {
         for (name, schema) in index.components().schemas() {
             types.insert_schema::<&str, SmallVec<[_; 4]>>(
                 schema,
-                smallvec![name.as_str(), "schema", "comp", ""],
+                smallvec![&**name, "schema", "comp", ""],
             );
         }
     });
@@ -27,7 +27,7 @@ pub fn gen(index: schema::Index) -> TokenStream {
         for (name, param) in index.components().parameters() {
             types.insert_schema::<&str, SmallVec<[_; 4]>>(
                 index.components().resolve_schema(param.schema()),
-                smallvec![name.as_str(), "param", "comp", ""],
+                smallvec![&**name, "param", "comp", ""],
             );
         }
     });
@@ -35,7 +35,7 @@ pub fn gen(index: schema::Index) -> TokenStream {
         for (name, media_type) in index.components().headers() {
             types.insert_schema::<&str, SmallVec<[_; 4]>>(
                 index.components().resolve_schema(media_type.schema()),
-                smallvec![name.as_str(), "header", "comp", ""],
+                smallvec![&**name, "header", "comp", ""],
             );
         }
     });
@@ -44,7 +44,7 @@ pub fn gen(index: schema::Index) -> TokenStream {
             for (mime, media_type) in response.content() {
                 types.insert_schema::<&str, SmallVec<[_; 4]>>(
                     index.components().resolve_schema(media_type.schema()),
-                    smallvec![name.as_str(), "response", "comp", ""],
+                    smallvec![&**name, "response", "comp", ""],
                 );
             }
         }

@@ -3,6 +3,7 @@
 mod index;
 pub use index::*;
 
+// #[path = "operation_expand.rs"]
 mod operation;
 pub use operation::*;
 
@@ -10,13 +11,13 @@ pub use operation::*;
 mod schema;
 pub use schema::*;
 
-pub fn parse(path: &std::path::Path) -> std::io::Result<Index> {
-    use std::fs;
+mod maybe_ref;
+use maybe_ref::{MaybeRef, Ref};
 
+pub fn parse(input: &str) -> std::io::Result<Index> {
     use serde_path_to_error as spte;
 
-    let index_file = fs::File::open(&path).map_err(err!("failed to open {}", path.display()))?;
-    let index: Index = spte::deserialize(&mut serde_json::Deserializer::from_reader(index_file))
-        .map_err(err!("error parsing {}", path.display()))?;
+    let index: Index = spte::deserialize(&mut serde_json::Deserializer::from_str(input))
+        .map_err(err!("error parsing api.github.com.json"))?;
     Ok(index)
 }

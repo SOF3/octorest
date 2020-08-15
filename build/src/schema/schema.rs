@@ -1,31 +1,30 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt;
 
 use getset::{CopyGetters, Getters};
-use serde::{de::Error, Deserialize, Deserializer};
+use serde::{de::IgnoredAny, Deserialize, Deserializer};
 
 use super::MaybeRef;
 use crate::gen::TreeHandle;
 
 #[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-pub struct Schema {
+pub struct Schema<'sch> {
     #[serde(flatten)]
+    #[serde(borrow)]
     #[getset(get = "pub")]
-    typed: Typed,
+    typed: Typed<'sch>,
     #[getset(get = "pub")]
-    title: Option<String>,
+    title: Option<Cow<'sch, str>>,
     #[getset(get = "pub")]
-    description: Option<String>,
+    description: Option<Cow<'sch, str>>,
     #[serde(default)]
     #[getset(get_copy = "pub")]
     nullable: bool,
     #[serde(default)]
     #[getset(get_copy = "pub")]
     deprecated: bool,
-    #[getset(get = "pub")]
-    example: Option<serde_json::Value>,
     #[serde(default)]
     read_only: bool,
     #[getset(get_copy = "pub")]
@@ -37,16 +36,16 @@ pub struct Schema {
 }
 
 #[derive(Debug, Clone)]
-pub enum Typed {
-    String(StringSchema),
-    Integer(IntegerSchema),
+pub enum Typed<'sch> {
+    String(StringSchema<'sch>),
+    Integer(IntegerSchema<'sch>),
     Number(NumberSchema),
     Boolean(BooleanSchema),
-    Object(ObjectSchema),
-    Array(ArraySchema),
+    Object(ObjectSchema<'sch>),
+    Array(ArraySchema<'sch>),
 }
 
-impl Typed {
+impl<'sch> Typed<'sch> {
     pub fn has_default(&self) -> bool {
         match self {
             Self::String(s) => s.default.is_some(),
@@ -59,64 +58,54 @@ impl Typed {
     }
 }
 
-impl<'de> Deserialize<'de> for Typed {
+impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let mut value = serde_json::Map::<String, serde_json::Value>::deserialize(d)?;
-
-        fn me<E: Error>(err: impl fmt::Display) -> E {
-            E::custom(err)
+        #[derive(Deserialize)]
+        #[serde(tag = "type")]
+        enum Tagged<'sch> {
+            #[serde(borrow)]
+            String(StringSchema<'sch>),
+            Integer(IntegerSchema<'sch>),
+            Number(NumberSchema),
+            Boolean(BooleanSchema),
+            Object(ObjectSchema<'sch>),
+            Array(ArraySchema<'sch>),
         }
 
-        if let Some(ty) = value.remove("type") {
-            if let serde_json::Value::String(str) = ty {
-                let value = serde_json::Value::Object(value);
-                match str.as_ref() {
-                    "string" => {
-                        return Ok(Typed::String(serde_json::from_value(value).map_err(me)?))
-                    }
-                    "integer" => {
-                        return Ok(Typed::Integer(serde_json::from_value(value).map_err(me)?))
-                    }
-                    "number" => {
-                        return Ok(Typed::Number(serde_json::from_value(value).map_err(me)?))
-                    }
-                    "object" => {
-                        return Ok(Typed::Object(serde_json::from_value(value).map_err(me)?))
-                    }
-                    "array" => return Ok(Typed::Array(serde_json::from_value(value).map_err(me)?)),
-                    "boolean" => {
-                        return Ok(Typed::Boolean(serde_json::from_value(value).map_err(me)?))
-                    }
-                    _ => panic!("unknown type: {:?}", value),
-                }
-            }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Untagged<'sch> {
+            #[serde(borrow)]
+            Tagged(Tagged<'sch>),
+            // using the `items` tag
+            Array(ArraySchema<'sch>),
+            Object(ObjectSchema<'sch>),
         }
 
-        if value.get("items").is_some() {
-            return Ok(Typed::Array(
-                serde_json::from_value(value.into()).map_err(me)?,
-            ));
-        }
-
-        // assume object
-        Ok(Typed::Object(
-            serde_json::from_value(value.into()).map_err(me)?,
-        ))
+        let untagged = Untagged::deserialize(d)?;
+        Ok(match untagged {
+            Untagged::Tagged(Tagged::String(s)) => Typed::String(s),
+            Untagged::Tagged(Tagged::Integer(s)) => Typed::Integer(s),
+            Untagged::Tagged(Tagged::Number(s)) => Typed::Number(s),
+            Untagged::Tagged(Tagged::Boolean(s)) => Typed::Boolean(s),
+            Untagged::Tagged(Tagged::Array(s)) | Untagged::Array(s) => Typed::Array(s),
+            Untagged::Tagged(Tagged::Object(s)) | Untagged::Object(s) => Typed::Object(s),
+        })
     }
 }
 
 #[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct StringSchema {
+pub struct StringSchema<'sch> {
     #[getset(get = "pub")]
-    default: Option<String>,
+    default: Option<Cow<'sch, str>>,
     #[getset(get = "pub")]
-    enum_: Option<Vec<String>>,
+    enum_: Option<Vec<Cow<'sch, str>>>,
     #[getset(get = "pub")]
-    pattern: Option<String>,
+    pattern: Option<Cow<'sch, str>>,
     #[getset(get = "pub")]
-    format: Option<String>,
+    format: Option<Cow<'sch, str>>,
     #[getset(get_copy = "pub")]
     min_length: Option<usize>,
     #[getset(get_copy = "pub")]
@@ -126,11 +115,11 @@ pub struct StringSchema {
 #[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub struct IntegerSchema {
+pub struct IntegerSchema<'sch> {
     #[getset(get_copy = "pub")]
     default: Option<i64>,
     #[getset(get = "pub")]
-    format: Option<String>,
+    format: Option<Cow<'sch, str>>,
     #[getset(get_copy = "pub")]
     maximum: Option<i64>,
     #[getset(get_copy = "pub")]
@@ -155,47 +144,44 @@ pub struct BooleanSchema {
 
 #[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
-pub struct ObjectSchema {
-    #[getset(get = "pub")]
-    default: Option<serde_json::Map<String, serde_json::Value>>,
+pub struct ObjectSchema<'sch> {
     #[getset(get = "pub")]
     #[serde(default)]
-    required: Vec<String>,
+    #[serde(borrow)]
+    required: Vec<Cow<'sch, str>>,
     #[getset(get = "pub")]
     #[serde(default)]
-    properties: HashMap<String, MaybeRef<Schema>>,
+    properties: HashMap<Cow<'sch, str>, MaybeRef<'sch, Schema<'sch>>>,
     #[getset(get = "pub")]
-    additional_properties: Option<AdditionalProperties>,
+    additional_properties: Option<AdditionalProperties<'sch>>,
     #[getset(get_copy = "pub")]
     max_properties: Option<usize>,
     #[getset(get = "pub")]
-    any_of: Option<Vec<MaybeRef<Schema>>>,
+    any_of: Option<Vec<MaybeRef<'sch, Schema<'sch>>>>,
     #[getset(get = "pub")]
-    one_of: Option<Vec<MaybeRef<Schema>>>,
+    one_of: Option<Vec<MaybeRef<'sch, Schema<'sch>>>>,
     #[getset(get = "pub")]
-    all_of: Option<Vec<MaybeRef<Schema>>>,
+    all_of: Option<Vec<MaybeRef<'sch, Schema<'sch>>>>,
+    #[getset(get_copy = "pub")]
+    default: Option<IgnoredAny>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
-pub enum AdditionalProperties {
-    Schema(MaybeRef<Box<Schema>>),
+pub enum AdditionalProperties<'sch> {
+    Schema(#[serde(borrow)] MaybeRef<'sch, Box<Schema<'sch>>>),
     Bool(bool),
 }
 
 #[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
-pub struct ArraySchema {
+pub struct ArraySchema<'sch> {
     #[getset(get = "pub")]
-    default: Option<Vec<serde_json::Value>>,
-    #[getset(get = "pub")]
-    items: MaybeRef<Box<Schema>>,
+    #[serde(borrow)]
+    items: MaybeRef<'sch, Box<Schema<'sch>>>,
     #[getset(get_copy = "pub")]
     min_items: Option<usize>,
     // unused, probably documentation bug
-    #[getset(get = "pub")]
-    required: Option<serde_json::Value>,
+    default: Option<IgnoredAny>,
 }

@@ -1,71 +1,39 @@
-use std::collections::HashMap;
-use std::fmt;
+use std::borrow::Cow;
 
 use getset::{CopyGetters, Getters};
 use serde::Deserialize;
 
-use super::{ExternalDocs, Schema};
+use super::{ExternalDocs, Schema, MaybeRef};
 
 #[derive(Deserialize, Getters)]
 #[serde(rename_all = "camelCase")]
 #[getset(get = "pub")]
-pub struct Operation {
-    summary: String,
-    description: String,
-    operation_id: String,
-    tags: Vec<String>,
+pub struct Operation<'sch> {
+    summary: Cow<'sch, str>,
+    description: Cow<'sch, str>,
+    operation_id: Cow<'sch, str>,
+    tags: Vec<Cow<'sch, str>,>,
+    external_docs: Option<ExternalDocs<'sch>>,
     #[serde(default)]
-    external_docs: Option<ExternalDocs>,
-    #[serde(default)]
-    parameters: Vec<MaybeRef<Parameter>>,
-    request_body: Option<RequestBody>,
-    responses: Responses,
-}
-
-#[derive(Debug, Clone)]
-pub enum MaybeRef<T> {
-    Ref(Ref),
-    Owned(T),
-}
-
-impl<'de, T: for<'t> Deserialize<'t>> Deserialize<'de> for MaybeRef<T> {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let value = serde_json::Value::deserialize(d)?;
-        if let serde_json::Value::Object(map) = &value {
-            if let Some(serde_json::Value::String(target)) = map.get("$ref") {
-                return Ok(Self::Ref(Ref {
-                    target: target.to_string(),
-                }));
-            }
-        }
-
-        fn me<E: serde::de::Error>(err: impl fmt::Display) -> E {
-            E::custom(err)
-        }
-        let t: T = serde_json::from_value(value).map_err(me)?;
-        Ok(Self::Owned(t))
-    }
-}
-
-#[derive(Debug, Clone, Getters, Deserialize)]
-#[getset(get = "pub")]
-pub struct Ref {
-    #[serde(rename = "$ref")]
-    pub target: String,
+    #[serde(borrow)]
+    parameters: Vec<MaybeRef<'sch, Parameter<'sch>>>,
+    request_body: Option<RequestBody<'sch>>,
+    responses: Responses<'sch>,
 }
 
 #[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-pub struct Parameter {
+pub struct Parameter<'sch> {
+    #[serde(borrow)]
     #[getset(get = "pub")]
-    name: String,
+    name: Cow<'sch, str>,
     #[getset(get_copy = "pub")]
     #[serde(rename = "in")]
     location: ParameterLocation,
     #[getset(get = "pub")]
-    description: Option<String>,
+    description: Option<Cow<'sch, str>,>,
     #[getset(get = "pub")]
-    schema: MaybeRef<Schema>,
+    schema: MaybeRef<'sch, Schema<'sch>>,
 }
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,35 +46,54 @@ pub enum ParameterLocation {
 
 #[derive(Deserialize, Getters)]
 #[serde(rename_all = "camelCase")]
-#[getset(get = "pub")]
-pub struct RequestBody {
-    content: HashMap<String, MediaType>,
+pub struct RequestBody<'sch> {
+    #[serde(with = "tuple_vec_map")]
+    #[serde(borrow)]
+    content: Vec<(Cow<'sch, str>, MediaType<'sch>)>,
 }
 
-#[derive(Deserialize, Getters)]
-#[serde(rename_all = "camelCase")]
-#[getset(get = "pub")]
-pub struct MediaType {
-    schema: MaybeRef<Schema>,
-    example: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Responses(HashMap<u16, Response>);
-
-impl Responses {
-    pub fn get(&self) -> impl Iterator<Item = (&u16, &Response)> {
-        self.0.iter()
+impl<'sch> RequestBody<'sch> {
+    pub fn content(&self) -> impl Iterator<Item = (&str, &MediaType<'sch>)> {
+        self.content.iter().map(|(k, v)| (k.as_ref(), v))
     }
 }
 
 #[derive(Deserialize, Getters)]
 #[serde(rename_all = "camelCase")]
-#[getset(get = "pub")]
-pub struct Response {
-    description: Option<String>,
+pub struct MediaType<'sch> {
+    #[serde(borrow)]
+    #[getset(get = "pub")]
+    schema: MaybeRef<'sch, Schema<'sch>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Responses<'sch>(
+    #[serde(with = "tuple_vec_map")]
+    #[serde(borrow)]
+    Vec<(u16, Response<'sch>)>,
+);
+
+impl<'sch> Responses<'sch> {
+    pub fn get(&self) -> impl Iterator<Item = (&u16, &Response<'sch>)> {
+        self.0.iter().map(|(k, v)| (k, v))
+    }
+}
+
+#[derive(Deserialize, Getters)]
+#[serde(rename_all = "camelCase")]
+pub struct Response<'sch> {
+    #[getset(get = "pub")]
+    #[serde(borrow)]
+    description: Option<Cow<'sch, str>>,
     // key is mime type, usually application/json
     #[serde(default)]
-    content: HashMap<String, MediaType>,
+    #[serde(with = "tuple_vec_map")]
+    content: Vec<(Cow<'sch, str>, MediaType<'sch>)>,
+}
+
+impl<'sch> Response<'sch> {
+    pub fn content(&self) -> impl Iterator<Item = (&str, &MediaType<'sch>)> {
+        self.content.iter().map(|(k, v)| (k.as_ref(), v))
+    }
 }

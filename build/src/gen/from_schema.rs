@@ -5,7 +5,10 @@ use super::{TreeHandle, TypeDef};
 use crate::{idents, schema};
 
 // note: do not read from schema.tree_handle in this function
-pub fn schema_to_def(handle: impl FnOnce() -> TreeHandle, schema: &schema::Schema) -> TypeDef<'_> {
+pub fn schema_to_def<'sch>(
+    handle: impl FnOnce() -> TreeHandle,
+    schema: &'sch schema::Schema<'sch>,
+) -> TypeDef<'sch> {
     match schema.typed() {
         schema::Typed::String(s) => from_string(handle, s),
         schema::Typed::Integer(s) => from_integer(s),
@@ -17,20 +20,23 @@ pub fn schema_to_def(handle: impl FnOnce() -> TreeHandle, schema: &schema::Schem
     }
 }
 
-fn from_string(handle: impl FnOnce() -> TreeHandle, s: &schema::StringSchema) -> TypeDef<'_> {
+fn from_string<'sch>(
+    handle: impl FnOnce() -> TreeHandle,
+    s: &'sch schema::StringSchema<'sch>,
+) -> TypeDef<'sch> {
     if let Some(enum_) = s.enum_() {
-        type_enum(enum_, handle)
-    } else if let Some("date-time") = s.format().as_ref().map(String::as_str) {
+        type_enum(enum_.iter().map(|cow| cow.as_ref()), handle)
+    } else if let Some("date-time") = s.format().as_ref().map(|cow| cow.as_ref()) {
         type_date_time()
     } else {
         type_str(s)
     }
 }
 
-fn type_enum(enum_: &[String], handle: impl FnOnce() -> TreeHandle) -> TypeDef<'_> {
+fn type_enum<'sch>(enum_: impl Iterator<Item = &'sch str> + Clone + 'sch, handle: impl FnOnce() -> TreeHandle) -> TypeDef<'sch> {
     let handle = handle();
 
-    let enum_ = enum_.iter().map(|word| (word, idents::pascal(word)));
+    let enum_ = enum_.map(|word| (word, idents::pascal(word)));
     let variants = enum_
         .clone()
         .map(|(word, v_ident)| quote!(#[serde(rename = #word)] #v_ident));
@@ -72,7 +78,7 @@ fn type_date_time() -> TypeDef<'static> {
     }
 }
 
-fn type_str(s: &schema::StringSchema) -> TypeDef<'_> {
+fn type_str<'sch>(s: &'sch schema::StringSchema<'sch>) -> TypeDef<'sch> {
     TypeDef {
         def: Box::new(|_| quote!()),
         has_lifetime: true,
@@ -84,8 +90,8 @@ fn type_str(s: &schema::StringSchema) -> TypeDef<'_> {
     }
 }
 
-fn from_integer(s: &schema::IntegerSchema) -> TypeDef<'_> {
-    if let Some("timestamp") = s.format().as_ref().map(String::as_str) {
+fn from_integer<'sch>(s: &'sch schema::IntegerSchema<'sch>) -> TypeDef<'sch> {
+    if let Some("timestamp") = s.format().as_ref().map(|cow| cow.as_ref()) {
         type_timestamp()
     } else {
         type_int()
