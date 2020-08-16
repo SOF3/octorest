@@ -5,8 +5,8 @@ use quote::quote;
 
 use self::from_schema::schema_to_def;
 use self::tree::{NameComponent, NameTree, NameTreeResolve, TreeHandle};
-pub use self::types::{Types, TypeDef};
-use self::types::{Lifetime};
+use self::types::Lifetime;
+pub use self::types::{TypeDef, Types};
 use crate::schema;
 
 mod from_schema;
@@ -41,7 +41,7 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
                 &mut types,
                 index,
                 schema,
-                cow_iter![3: &**name, "schema", "comp"]
+                cow_iter![3: &**name, "schema", "comp"],
             );
         }
     });
@@ -51,7 +51,7 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
                 &mut types,
                 index,
                 index.components().resolve_schema(param.schema(), crate::id),
-                cow_iter![3: &**name, "param", "comp"]
+                cow_iter![3: &**name, "param", "comp"],
             );
         }
     });
@@ -63,7 +63,7 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
                 index
                     .components()
                     .resolve_schema(media_type.schema(), crate::id),
-                cow_iter![3: &**name, "header", "comp"]
+                cow_iter![3: &**name, "header", "comp"],
             );
         }
     });
@@ -76,7 +76,7 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
                     index
                         .components()
                         .resolve_schema(media_type.schema(), crate::id),
-                    cow_iter![3: &**name, "response", "comp"]
+                    cow_iter![3: &**name, "response", "comp"],
                 );
             }
         }

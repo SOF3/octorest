@@ -25,7 +25,10 @@ impl<'t> NameTree<'t> {
         NameComponent<'t>: From<C>,
         I: IntoIterator<Item = C> + 't,
     {
-        let mut name_iter = name_iter.into_iter().map(NameComponent::from).chain(iter::once(NameComponent::Borrowed("")));
+        let mut name_iter = name_iter
+            .into_iter()
+            .map(NameComponent::from)
+            .chain(iter::once(NameComponent::Borrowed("")));
 
         let mut key = vec![];
         key.push(name_iter.next().expect("name_iter is empty"));

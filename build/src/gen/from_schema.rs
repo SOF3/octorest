@@ -67,7 +67,7 @@ fn type_enum<'sch>(
         .clone()
         .map(|(word, v_ident)| quote!(#[serde(rename = #word)] #v_ident))
         .collect();
-    let arms : Vec<_>= enum_
+    let arms: Vec<_> = enum_
         .clone()
         .map(|(word, v_ident)| quote!(Self::#v_ident => #word))
         .collect();

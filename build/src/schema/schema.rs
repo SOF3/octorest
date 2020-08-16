@@ -36,9 +36,17 @@ pub struct Schema<'sch> {
 }
 
 impl<'sch> Schema<'sch> {
-    pub fn get_type_def<'t>(&self, types: &'t mut gen::Types<'sch>) -> Option<&'t Rc<gen::TypeDef<'sch>>> {
+    pub fn get_type_def<'t>(
+        &self,
+        types: &'t mut gen::Types<'sch>,
+    ) -> Option<&'t Rc<gen::TypeDef<'sch>>> {
         match self.type_def.get() {
-            Some(id) => Some(types.defs_mut().get(id).expect("set_type_def_id was called with an invalid id")),
+            Some(id) => Some(
+                types
+                    .defs_mut()
+                    .get(id)
+                    .expect("set_type_def_id was called with an invalid id"),
+            ),
             None => None,
         }
     }
