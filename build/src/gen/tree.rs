@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::iter;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
@@ -18,13 +19,13 @@ pub struct NameTree<'t> {
 
 impl<'t> NameTree<'t> {
     /// `name_iter` is the iterator that yields next name copmonents.
-    /// In the output ident, the order of strings created by `name_iter` will be reversed.  `name_iter` must not yield empty strings, except for the trailing *one* item.
+    /// In the output ident, the order of strings created by `name_iter` will be reversed.  `name_iter` must not yield empty strings.
     pub fn insert<C: 't, I>(&mut self, name_iter: I) -> TreeHandle
     where
         NameComponent<'t>: From<C>,
         I: IntoIterator<Item = C> + 't,
     {
-        let mut name_iter = name_iter.into_iter().map(NameComponent::from);
+        let mut name_iter = name_iter.into_iter().map(NameComponent::from).chain(iter::once(NameComponent::Borrowed("")));
 
         let mut key = vec![];
         key.push(name_iter.next().expect("name_iter is empty"));
@@ -111,14 +112,7 @@ impl TreeHandle {
         self,
         f: F,
     ) -> Box<dyn Fn(&NameTreeResolve) -> R + 't> {
-        Box::new(move |ntr| self.then(f).resolve(ntr))
-    }
-
-    pub fn then_box_once<'t, R: 't, F: FnOnce(&Ident, &TokenStream) -> R + 't>(
-        self,
-        f: F,
-    ) -> Box<dyn FnOnce(&NameTreeResolve) -> R + 't> {
-        Box::new(move |ntr| self.then(f).resolve(ntr))
+        Box::new(move |ntr| self.then(&f).resolve(ntr))
     }
 
     pub fn then_format<'t>(
@@ -126,6 +120,7 @@ impl TreeHandle {
         f: impl Fn(&Ident, &TokenStream, TokenStream) -> TokenStream + 't,
     ) -> Box<dyn Fn(&NameTreeResolve, TokenStream) -> TokenStream + 't> {
         Box::new(move |ntr, expr| {
+            let f = &f;
             self.then(move |ident, path| f(ident, path, expr))
                 .resolve(ntr)
         })
@@ -147,8 +142,8 @@ mod tests {
     #[test]
     pub fn test_tree() {
         let mut tree = super::NameTree::default();
-        let handle1 = tree.insert(&["xa", "xb", "xc", "xf"]);
-        let handle2 = tree.insert(&["xa", "xb", "xd", "xe"]);
+        let handle1 = tree.insert(["xa", "xb", "xc", "xf"].into_iter().copied());
+        let handle2 = tree.insert(["xa", "xb", "xd", "xe"].into_iter().copied());
 
         let abc = handle1.then(|ident, _| ident.to_string());
         let abd = handle2.then(|ident, _| ident.to_string());

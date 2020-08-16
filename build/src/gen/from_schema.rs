@@ -15,11 +15,11 @@ pub fn schema_to_def<'sch>(
     schema: &'sch schema::Schema<'sch>,
     name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
 ) -> Rc<TypeDef<'sch>> {
-    let borrow = schema
+    let mut borrow = schema
         .type_def()
         .try_borrow_mut()
         .expect("Recursive types are unimplemented");
-    let def = Rc::new(match schema.typed() {
+    let def: TypeDef<'sch> = match schema.typed() {
         schema::Typed::String(s) => from_string(types, name_comps, schema, s),
         schema::Typed::Integer(s) => from_integer(s),
         schema::Typed::Number(s) => from_number(s),
@@ -27,7 +27,8 @@ pub fn schema_to_def<'sch>(
         schema::Typed::Array(s) => from_array(types, name_comps, index, schema, s),
         // schema::Typed::Object(s) => from_object(handle, s),
         _ => todo!(),
-    });
+    };
+    let def = Rc::new(def);
     types.insert_type(&def);
     *borrow = Some(Rc::clone(&def));
     def
@@ -62,15 +63,17 @@ fn type_enum<'sch>(
     let handle = types.alloc_handle(name_comps);
 
     let enum_ = enum_.map(|word| (word, idents::pascal(word)));
-    let variants = enum_
+    let variants: Vec<_> = enum_
         .clone()
-        .map(|(word, v_ident)| quote!(#[serde(rename = #word)] #v_ident));
-    let arms = enum_
+        .map(|(word, v_ident)| quote!(#[serde(rename = #word)] #v_ident))
+        .collect();
+    let arms : Vec<_>= enum_
         .clone()
-        .map(|(word, v_ident)| quote!(Self::#v_ident => #word));
+        .map(|(word, v_ident)| quote!(Self::#v_ident => #word))
+        .collect();
 
     TypeDef {
-        def: handle.then_box_once(|ident, _| {
+        def: handle.then_box(move |ident, _| {
             let attrs = schema_attrs(schema);
             quote! {
                 #attrs
@@ -191,20 +194,25 @@ fn from_array<'sch>(
         super::iter_change_first(name_comps, |first| format!("{} {}", first, "Item").into()),
     ); // TODO plural to singular conversion
 
+    // Rust can't auto clone Rc for closures :(
+    let item1 = Rc::clone(&item);
+    let item2 = Rc::clone(&item);
+    let item3 = Rc::clone(&item);
+
     TypeDef {
         def: Box::new(|_| quote!()),
         lifetime: Lifetime::ARG | Lifetime::SER,
-        as_arg: Box::new(|ntr| {
-            let item_arg = (item.as_arg)(ntr);
+        as_arg: Box::new(move |ntr| {
+            let item_arg = (item1.as_arg)(ntr);
             quote!(&'ser [#item_arg])
         }),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)), // TODO fix if as_arg and as_ser are different
-        as_ser: Box::new(|ntr| {
-            let item_arg = (item.as_ser)(ntr);
+        as_ser: Box::new(move |ntr| {
+            let item_arg = (item2.as_ser)(ntr);
             quote!(&'ser [#item_arg])
         }),
-        as_de: Box::new(|ntr| {
-            let item_arg = (item.as_de)(ntr);
+        as_de: Box::new(move |ntr| {
+            let item_arg = (item3.as_de)(ntr);
             quote!(Vec<#item_arg>)
         }),
         format: Box::new(|_, _| unimplemented!("could not serialize arrays")),
@@ -212,12 +220,12 @@ fn from_array<'sch>(
 }
 
 /*
-fn from_object(ident: &Ident, s: &schema::ObjectSchema) -> TypeDef {
+fn from_object(ident: &Ident, s: &'sch schema::ObjectSchema) -> TypeDef {
     todo!()
 }
 */
 
-fn schema_attrs(schema: &schema::Schema) -> TokenStream {
+fn schema_attrs<'sch>(schema: &'sch schema::Schema<'sch>) -> TokenStream {
     let description = schema
         .description()
         .as_ref()

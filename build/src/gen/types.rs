@@ -37,7 +37,7 @@ impl<'t> Types<'t> {
 
 pub struct TypeDef<'t> {
     /// The type definition, if any
-    pub def: Box<dyn FnOnce(&NameTreeResolve) -> TokenStream + 't>,
+    pub def: Box<dyn Fn(&NameTreeResolve) -> TokenStream + 't>,
     /// whether the type takes a lifetime
     pub lifetime: Lifetime,
     /// The argument type in builder, using lifetime `'ser` if `self.has_lifetime`

@@ -13,7 +13,26 @@ mod from_schema;
 mod tree;
 mod types;
 
-pub fn gen(index: &schema::Index<'_>) -> TokenStream {
+macro_rules! cow_iter {
+    ($size:literal : $($args:expr),* $(,)?) => {{
+        struct Iter<'t>([&'t str; $size], usize);
+
+        impl<'t> Iterator for Iter<'t> {
+            type Item = Cow<'t, str>;
+
+            fn next(&mut self) -> Option<Cow<'t, str>> {
+                let option = self.0.get(self.1)
+                    .map(|&cow| Cow::from(cow));
+                self.1 += 1;
+                option
+            }
+        }
+
+        Iter([$($args),*], 0)
+    }};
+}
+
+pub fn gen<'sch: 't, 't>(index: &'sch schema::Index<'t>) -> TokenStream {
     let mut types = Types::default();
 
     crate::task("Generate types for .components.schemas", || {
@@ -22,9 +41,7 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                 &mut types,
                 index,
                 schema,
-                [&**name, "schema", "comp", ""]
-                    .iter()
-                    .map(|name| Cow::Borrowed(*name)),
+                cow_iter![3: &**name, "schema", "comp"]
             );
         }
     });
@@ -34,9 +51,7 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                 &mut types,
                 index,
                 index.components().resolve_schema(param.schema(), crate::id),
-                [&**name, "param", "comp", ""]
-                    .iter()
-                    .map(|name| Cow::Borrowed(*name)),
+                cow_iter![3: &**name, "param", "comp"]
             );
         }
     });
@@ -48,9 +63,7 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                 index
                     .components()
                     .resolve_schema(media_type.schema(), crate::id),
-                [&**name, "header", "comp", ""]
-                    .iter()
-                    .map(|name| Cow::Borrowed(*name)),
+                cow_iter![3: &**name, "header", "comp"]
             );
         }
     });
@@ -63,9 +76,7 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                     index
                         .components()
                         .resolve_schema(media_type.schema(), crate::id),
-                    [&**name, "response", "comp", ""]
-                        .iter()
-                        .map(|name| Cow::Borrowed(*name)),
+                    cow_iter![3: &**name, "response", "comp"]
                 );
             }
         }

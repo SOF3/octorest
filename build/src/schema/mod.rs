@@ -14,7 +14,7 @@ pub use schema::*;
 mod maybe_ref;
 use maybe_ref::{MaybeRef, Ref};
 
-pub fn parse(input: &str) -> std::io::Result<Index> {
+pub fn parse<'sch>(input: &'sch str) -> std::io::Result<Index<'sch>> {
     use serde_path_to_error as spte;
 
     let index: Index = spte::deserialize(&mut serde_json::Deserializer::from_str(input))
