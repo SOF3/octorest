@@ -1,3 +1,4 @@
+use std::iter;
 use std::rc::Rc;
 
 use proc_macro2::TokenStream;
@@ -27,8 +28,7 @@ pub fn schema_to_def<'sch>(
         schema::Typed::Number(s) => from_number(s),
         schema::Typed::Boolean(s) => from_boolean(),
         schema::Typed::Array(s) => from_array(types, name_comps, index, schema, s),
-        // schema::Typed::Object(s) => from_object(handle, s),
-        _ => todo!(),
+        schema::Typed::Object(s) => from_object(types, name_comps, index, schema, s),
     };
     let def = Rc::new(def);
     let def_id = types.insert_type(&def);
@@ -191,13 +191,9 @@ fn from_array<'sch>(
 
     let mut name_comps_item = name_comps.clone();
     name_comps_item[0] = format!("{} Item", name_comps_item[0]).into();
+    // TODO plural to singular conversion
 
-    let item = schema_to_def(
-        types,
-        index,
-        schema,
-        name_comps_item,
-    ); // TODO plural to singular conversion
+    let item = schema_to_def(types, index, items, name_comps_item);
 
     // Rust can't auto clone Rc for closures :(
     let item1 = Rc::clone(&item);
@@ -224,11 +220,41 @@ fn from_array<'sch>(
     }
 }
 
-/*
-fn from_object(ident: &Ident, s: &'sch schema::ObjectSchema) -> TypeDef {
-    todo!()
+fn from_object<'sch>(
+    types: &mut Types<'sch>,
+    name_comps: NameComponents<'sch>,
+    index: &'sch schema::Index<'sch>,
+    schema: &'sch schema::Schema<'sch>,
+    s: &'sch schema::ObjectSchema<'sch>,
+) -> TypeDef<'sch> {
+    let properties = s.properties().iter().map(|(name, subschema)| {
+        let subschema = index.components().resolve_schema(subschema, crate::id);
+        let subname: Vec<_> = iter::once(name.clone())
+            .chain(name_comps.iter().cloned())
+            .collect();
+        let subty = schema_to_def(&mut *types, index, subschema, subname);
+        (name, subty)
+    });
+
+    // TODO process other fields
+
+    let handle = types.alloc_handle(name_comps.into_iter());
+    TypeDef {
+        def: handle.then_box(|ident, _| {
+            quote! {
+                pub struct #ident {
+                    // TODO
+                }
+            }
+        }),
+        lifetime: Lifetime::empty(), // TODO
+        as_arg: handle.then_box(|_, path| quote!(#path)),
+        arg_to_ser: Box::new(|_, expr| quote!(#expr)),
+        as_ser: handle.then_box(|_, path| quote!(#path)),
+        as_de: handle.then_box(|_, path| quote!(#path)),
+        format: Box::new(|_, _| unimplemented!("cannot use object as urlencoded")),
+    }
 }
-*/
 
 fn schema_attrs<'sch>(schema: &'sch schema::Schema<'sch>) -> TokenStream {
     let description = schema
