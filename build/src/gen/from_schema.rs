@@ -1,34 +1,51 @@
+use std::rc::Rc;
+
 use proc_macro2::TokenStream;
 use quote::quote;
 
-use super::{TreeHandle, TypeDef, Lifetime, Types};
+use super::{Lifetime, NameComponent, TypeDef, Types};
 use crate::{idents, schema};
 
-// note: do not read from schema.tree_handle in this function
+/// Computes the `TypeDef` for this schema,
+/// assigning types to `types` and filling `schema.tree_handle` if necessary,
+/// recursively lazy-computing `Schema` if inner types exist.
 pub fn schema_to_def<'sch>(
-    handle: impl FnMut(&str) -> TreeHandle,
     types: &mut Types<'sch>,
     index: &'sch schema::Index<'sch>,
     schema: &'sch schema::Schema<'sch>,
-) -> TypeDef<'sch> {
-    match schema.typed() {
-        schema::Typed::String(s) => from_string(handle, schema, s),
+    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
+) -> Rc<TypeDef<'sch>> {
+    let borrow = schema
+        .type_def()
+        .try_borrow_mut()
+        .expect("Recursive types are unimplemented");
+    let def = Rc::new(match schema.typed() {
+        schema::Typed::String(s) => from_string(types, name_comps, schema, s),
         schema::Typed::Integer(s) => from_integer(s),
         schema::Typed::Number(s) => from_number(s),
         schema::Typed::Boolean(s) => from_boolean(),
-        schema::Typed::Array(s) => from_array(types, handle, index, schema, s),
+        schema::Typed::Array(s) => from_array(types, name_comps, index, schema, s),
         // schema::Typed::Object(s) => from_object(handle, s),
         _ => todo!(),
-    }
+    });
+    types.insert_type(&def);
+    *borrow = Some(Rc::clone(&def));
+    def
 }
 
 fn from_string<'sch>(
-    handle: impl FnMut(&str) -> TreeHandle,
+    types: &mut Types<'sch>,
+    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::StringSchema<'sch>,
 ) -> TypeDef<'sch> {
     if let Some(enum_) = s.enum_() {
-        type_enum(schema, enum_.iter().map(|cow| cow.as_ref()), handle)
+        type_enum(
+            types,
+            name_comps,
+            schema,
+            enum_.iter().map(|cow| cow.as_ref()),
+        )
     } else if let Some("date-time") = s.format().as_ref().map(|cow| cow.as_ref()) {
         type_date_time()
     } else {
@@ -36,8 +53,13 @@ fn from_string<'sch>(
     }
 }
 
-fn type_enum<'sch>(schema: &'sch schema::Schema<'sch>, enum_: impl Iterator<Item = &'sch str> + Clone + 'sch, mut handle: impl FnMut(&str) -> TreeHandle) -> TypeDef<'sch> {
-    let handle = handle("");
+fn type_enum<'sch>(
+    types: &mut Types<'sch>,
+    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
+    schema: &'sch schema::Schema<'sch>,
+    enum_: impl Iterator<Item = &'sch str> + Clone + 'sch,
+) -> TypeDef<'sch> {
+    let handle = types.alloc_handle(name_comps);
 
     let enum_ = enum_.map(|word| (word, idents::pascal(word)));
     let variants = enum_
@@ -48,7 +70,7 @@ fn type_enum<'sch>(schema: &'sch schema::Schema<'sch>, enum_: impl Iterator<Item
         .map(|(word, v_ident)| quote!(Self::#v_ident => #word));
 
     TypeDef {
-        def: handle.then_box(|ident, _| {
+        def: handle.then_box_once(|ident, _| {
             let attrs = schema_attrs(schema);
             quote! {
                 #attrs
@@ -151,19 +173,41 @@ fn from_boolean() -> TypeDef<'static> {
     }
 }
 
-fn from_array<'sch>(types: &mut Types<'sch>, handle: impl FnMut(&str) -> TreeHandle, index: &'sch schema::Index<'sch>, schema: &'sch schema::Schema<'sch>, s: &'sch schema::ArraySchema<'sch>) -> TypeDef<'sch> {
-    let items = index.components().resolve_schema(s.items(), |boxed| &*boxed);
-    types.insert_schema(index, items, todo!("make handle into name_iter"));
-    let handle = items.tree_handle_mut(|th| *th).expect(todo!("wrong logic here"));
+fn from_array<'sch>(
+    types: &mut Types<'sch>,
+    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
+    index: &'sch schema::Index<'sch>,
+    schema: &'sch schema::Schema<'sch>,
+    s: &'sch schema::ArraySchema<'sch>,
+) -> TypeDef<'sch> {
+    let items = index
+        .components()
+        .resolve_schema(s.items(), |boxed| &*boxed);
+
+    let item = schema_to_def(
+        types,
+        index,
+        schema,
+        super::iter_change_first(name_comps, |first| format!("{} {}", first, "Item").into()),
+    ); // TODO plural to singular conversion
 
     TypeDef {
         def: Box::new(|_| quote!()),
-        lifetime: Lifetime::ARGUMENT | Lifetime::SER,
-        as_arg: handle.then_box(|_, path| quote!(&'ser [#path])),
-        arg_to_ser: Box::new(|_, expr| quote!(#expr)),
-        as_ser: handle.then_box(|_, path| quote!(&'ser [])),
-        as_de: handle.then_box(|_, path| quote!(Vec<#path>)),
-        format: Box::new(|_, _| unimplemented!("could not serialize arrays"))
+        lifetime: Lifetime::ARG | Lifetime::SER,
+        as_arg: Box::new(|ntr| {
+            let item_arg = (item.as_arg)(ntr);
+            quote!(&'ser [#item_arg])
+        }),
+        arg_to_ser: Box::new(|_, expr| quote!(#expr)), // TODO fix if as_arg and as_ser are different
+        as_ser: Box::new(|ntr| {
+            let item_arg = (item.as_ser)(ntr);
+            quote!(&'ser [#item_arg])
+        }),
+        as_de: Box::new(|ntr| {
+            let item_arg = (item.as_de)(ntr);
+            quote!(Vec<#item_arg>)
+        }),
+        format: Box::new(|_, _| unimplemented!("could not serialize arrays")),
     }
 }
 

@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use getset::{CopyGetters, Getters};
 use serde::Deserialize;
 
-use super::{ExternalDocs, Schema, MaybeRef};
+use super::{ExternalDocs, MaybeRef, Schema};
 
 #[derive(Deserialize, Getters)]
 #[serde(rename_all = "camelCase")]
@@ -12,7 +12,7 @@ pub struct Operation<'sch> {
     summary: Cow<'sch, str>,
     description: Cow<'sch, str>,
     operation_id: Cow<'sch, str>,
-    tags: Vec<Cow<'sch, str>,>,
+    tags: Vec<Cow<'sch, str>>,
     external_docs: Option<ExternalDocs<'sch>>,
     #[serde(default)]
     #[serde(borrow)]
@@ -31,7 +31,7 @@ pub struct Parameter<'sch> {
     #[serde(rename = "in")]
     location: ParameterLocation,
     #[getset(get = "pub")]
-    description: Option<Cow<'sch, str>,>,
+    description: Option<Cow<'sch, str>>,
     #[getset(get = "pub")]
     schema: MaybeRef<'sch, Schema<'sch>>,
 }

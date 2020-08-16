@@ -1,5 +1,3 @@
-use std::ops;
-
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,17 +22,23 @@ fn test_maybe_ref() {
         a: u32,
     }
 
-    let ref_: MaybeRef<'static, Foo> = serde_json::from_str(r##"
+    let ref_: MaybeRef<'static, Foo> = serde_json::from_str(
+        r##"
     {
         "$ref": "foo"
     }
-    "##).unwrap();
+    "##,
+    )
+    .unwrap();
     assert!(matches!(ref_, MaybeRef::Ref(Ref { target: "foo" })));
 
-    let owned: MaybeRef<'static, Foo> = serde_json::from_str(r##"
+    let owned: MaybeRef<'static, Foo> = serde_json::from_str(
+        r##"
     {
         "a": 3
     }
-    "##).unwrap();
+    "##,
+    )
+    .unwrap();
     assert!(matches!(owned, MaybeRef::Owned(Foo { a: 3 })));
 }

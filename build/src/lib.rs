@@ -75,7 +75,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_data = fs::read_to_string(&json_path)?;
 
     let index = task("Parsing api.github.com.json", || schema::parse(&json_data))?;
-    let ts_out = task("Generating code", || gen::gen(index));
+    let ts_out = task("Generating code", || gen::gen(&index));
 
     task(&format_args!("Writing to {}", out_path.display()), || {
         write_token_stream(ts_out, &mut out, 0, &mut true)
@@ -156,4 +156,6 @@ fn task<R>(name: &(impl fmt::Display + ?Sized), f: impl FnOnce() -> R) -> R {
     r
 }
 
-fn id<T>(t: T) -> T { t }
+fn id<T>(t: T) -> T {
+    t
+}

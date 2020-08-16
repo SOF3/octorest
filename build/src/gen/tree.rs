@@ -107,7 +107,14 @@ impl TreeHandle {
         TreeHandleThen(self.0, f)
     }
 
-    pub fn then_box<'t, R: 't, F: FnOnce(&Ident, &TokenStream) -> R + 't>(
+    pub fn then_box<'t, R: 't, F: Fn(&Ident, &TokenStream) -> R + 't>(
+        self,
+        f: F,
+    ) -> Box<dyn Fn(&NameTreeResolve) -> R + 't> {
+        Box::new(move |ntr| self.then(f).resolve(ntr))
+    }
+
+    pub fn then_box_once<'t, R: 't, F: FnOnce(&Ident, &TokenStream) -> R + 't>(
         self,
         f: F,
     ) -> Box<dyn FnOnce(&NameTreeResolve) -> R + 't> {
@@ -116,8 +123,8 @@ impl TreeHandle {
 
     pub fn then_format<'t>(
         self,
-        f: impl FnOnce(&Ident, &TokenStream, TokenStream) -> TokenStream + 't,
-    ) -> Box<dyn FnOnce(&NameTreeResolve, TokenStream) -> TokenStream + 't> {
+        f: impl Fn(&Ident, &TokenStream, TokenStream) -> TokenStream + 't,
+    ) -> Box<dyn Fn(&NameTreeResolve, TokenStream) -> TokenStream + 't> {
         Box::new(move |ntr, expr| {
             self.then(move |ident, path| f(ident, path, expr))
                 .resolve(ntr)

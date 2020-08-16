@@ -1,15 +1,15 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ops;
+use std::rc::Rc;
 
 use getset::{CopyGetters, Getters};
 use serde::{de::IgnoredAny, Deserialize, Deserializer};
 
 use super::MaybeRef;
-use crate::gen::TreeHandle;
+use crate::gen::TypeDef;
 
-#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 pub struct Schema<'sch> {
     #[serde(flatten)]
@@ -33,18 +33,9 @@ pub struct Schema<'sch> {
 
     #[serde(skip)]
     #[getset(get = "pub")]
-    tree_handle: RefCell<Option<TreeHandle>>,
+    type_def: RefCell<Option<Rc<TypeDef<'sch>>>>,
 }
 
-impl<'sch> Schema<'sch> {
-    pub fn tree_handle_mut<R>(&self, f: impl FnOnce(&mut Option<TreeHandle>) -> R) -> R {
-        let rm = self.tree_handle.try_borrow_mut()
-            .expect("Recursive type definition detected");
-        f(&*rm)
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum Typed<'sch> {
     String(StringSchema<'sch>),
     Integer(IntegerSchema<'sch>),
@@ -103,7 +94,7 @@ impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct StringSchema<'sch> {
@@ -121,7 +112,7 @@ pub struct StringSchema<'sch> {
     max_length: Option<usize>,
 }
 
-#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct IntegerSchema<'sch> {
@@ -135,7 +126,7 @@ pub struct IntegerSchema<'sch> {
     minimum: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct NumberSchema {
@@ -143,7 +134,7 @@ pub struct NumberSchema {
     default: Option<f64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct BooleanSchema {
@@ -151,7 +142,7 @@ pub struct BooleanSchema {
     default: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectSchema<'sch> {
     #[getset(get = "pub")]
@@ -175,7 +166,7 @@ pub struct ObjectSchema<'sch> {
     default: Option<IgnoredAny>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Deserialize)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
 pub enum AdditionalProperties<'sch> {
@@ -183,7 +174,7 @@ pub enum AdditionalProperties<'sch> {
     Bool(bool),
 }
 
-#[derive(Debug, Clone, Deserialize, Getters, CopyGetters)]
+#[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 pub struct ArraySchema<'sch> {
     #[getset(get = "pub")]
