@@ -1,13 +1,15 @@
 use std::rc::Rc;
 
+use getset::MutGetters;
 use proc_macro2::TokenStream;
 use quote::quote;
 
 use super::{NameComponent, NameTree, NameTreeResolve, TreeHandle};
 
-#[derive(Default)]
+#[derive(Default, MutGetters)]
 pub struct Types<'t> {
     tree: NameTree<'t>,
+    #[getset(get_mut = "pub")]
     defs: Vec<Rc<TypeDef<'t>>>,
 }
 
@@ -19,8 +21,9 @@ impl<'t> Types<'t> {
         self.tree.insert(name_comps)
     }
 
-    pub fn insert_type(&mut self, type_def: &Rc<TypeDef<'t>>) {
+    pub fn insert_type(&mut self, type_def: &Rc<TypeDef<'t>>) -> usize {
         self.defs.push(Rc::clone(type_def));
+        self.defs.len() - 1
     }
 
     pub fn finalize(self) -> TokenStream {

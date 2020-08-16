@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -7,7 +7,7 @@ use getset::{CopyGetters, Getters};
 use serde::{de::IgnoredAny, Deserialize, Deserializer};
 
 use super::MaybeRef;
-use crate::gen::TypeDef;
+use crate::gen;
 
 #[derive(Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
@@ -31,9 +31,24 @@ pub struct Schema<'sch> {
     #[getset(get_copy = "pub")]
     min_items: Option<usize>, // only used in ArraySchema::items
 
-    #[serde(skip)]
-    #[getset(get = "pub")]
-    type_def: RefCell<Option<Rc<TypeDef<'sch>>>>,
+    // #[serde(skip)]
+    type_def: Cell<Option<usize>>,
+}
+
+impl<'sch> Schema<'sch> {
+    pub fn get_type_def<'t>(&self, types: &'t mut gen::Types<'sch>) -> Option<&'t Rc<gen::TypeDef<'sch>>> {
+        match self.type_def.get() {
+            Some(id) => Some(types.defs_mut().get(id).expect("set_type_def_id was called with an invalid id")),
+            None => None,
+        }
+    }
+
+    pub fn set_type_def_id(&self, id: usize) {
+        let old = self.type_def.replace(Some(id));
+        if old.is_some() {
+            panic!("Call to set_type_def_id on the same schema multiple times");
+        }
+    }
 }
 
 pub enum Typed<'sch> {

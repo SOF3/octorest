@@ -5,8 +5,8 @@ use quote::quote;
 
 use self::from_schema::schema_to_def;
 use self::tree::{NameComponent, NameTree, NameTreeResolve, TreeHandle};
-pub use self::types::TypeDef;
-use self::types::{Lifetime, Types};
+pub use self::types::{Types, TypeDef};
+use self::types::{Lifetime};
 use crate::schema;
 
 mod from_schema;
@@ -32,7 +32,7 @@ macro_rules! cow_iter {
     }};
 }
 
-pub fn gen<'sch: 't, 't>(index: &'sch schema::Index<'t>) -> TokenStream {
+pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
     let mut types = Types::default();
 
     crate::task("Generate types for .components.schemas", || {

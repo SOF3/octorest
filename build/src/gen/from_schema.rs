@@ -15,10 +15,10 @@ pub fn schema_to_def<'sch>(
     schema: &'sch schema::Schema<'sch>,
     name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
 ) -> Rc<TypeDef<'sch>> {
-    let mut borrow = schema
-        .type_def()
-        .try_borrow_mut()
-        .expect("Recursive types are unimplemented");
+    let def = schema.get_type_def(&mut *types);
+    if let Some(def) = def {
+        return Rc::clone(def);
+    }
     let def: TypeDef<'sch> = match schema.typed() {
         schema::Typed::String(s) => from_string(types, name_comps, schema, s),
         schema::Typed::Integer(s) => from_integer(s),
@@ -29,8 +29,8 @@ pub fn schema_to_def<'sch>(
         _ => todo!(),
     };
     let def = Rc::new(def);
-    types.insert_type(&def);
-    *borrow = Some(Rc::clone(&def));
+    let def_id = types.insert_type(&def);
+    schema.set_type_def_id(def_id);
     def
 }
 
