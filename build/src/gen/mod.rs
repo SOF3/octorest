@@ -22,7 +22,9 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                 &mut types,
                 index,
                 schema,
-                [&**name, "schema", "comp", ""].iter().map(|name| Cow::Borrowed(*name)),
+                [&**name, "schema", "comp", ""]
+                    .iter()
+                    .map(|name| Cow::Borrowed(*name)),
             );
         }
     });
@@ -32,7 +34,9 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                 &mut types,
                 index,
                 index.components().resolve_schema(param.schema(), crate::id),
-                [&**name, "param", "comp", ""].iter().map(|name| Cow::Borrowed(*name)),
+                [&**name, "param", "comp", ""]
+                    .iter()
+                    .map(|name| Cow::Borrowed(*name)),
             );
         }
     });
@@ -44,7 +48,9 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                 index
                     .components()
                     .resolve_schema(media_type.schema(), crate::id),
-                [&**name, "header", "comp", ""].iter().map(|name| Cow::Borrowed(*name)),
+                [&**name, "header", "comp", ""]
+                    .iter()
+                    .map(|name| Cow::Borrowed(*name)),
             );
         }
     });
@@ -57,7 +63,9 @@ pub fn gen(index: &schema::Index<'_>) -> TokenStream {
                     index
                         .components()
                         .resolve_schema(media_type.schema(), crate::id),
-                    [&**name, "response", "comp", ""].iter().map(|name| Cow::Borrowed(*name)),
+                    [&**name, "response", "comp", ""]
+                        .iter()
+                        .map(|name| Cow::Borrowed(*name)),
                 );
             }
         }
