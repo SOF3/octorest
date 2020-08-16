@@ -6,6 +6,8 @@ use quote::quote;
 use super::{Lifetime, NameComponent, TypeDef, Types};
 use crate::{idents, schema};
 
+pub type NameComponents<'sch> = Vec<NameComponent<'sch>>;
+
 /// Computes the `TypeDef` for this schema,
 /// assigning types to `types` and filling `schema.tree_handle` if necessary,
 /// recursively lazy-computing `Schema` if inner types exist.
@@ -13,7 +15,7 @@ pub fn schema_to_def<'sch>(
     types: &mut Types<'sch>,
     index: &'sch schema::Index<'sch>,
     schema: &'sch schema::Schema<'sch>,
-    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
+    name_comps: NameComponents<'sch>,
 ) -> Rc<TypeDef<'sch>> {
     let def = schema.get_type_def(&mut *types);
     if let Some(def) = def {
@@ -36,7 +38,7 @@ pub fn schema_to_def<'sch>(
 
 fn from_string<'sch>(
     types: &mut Types<'sch>,
-    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
+    name_comps: NameComponents<'sch>,
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::StringSchema<'sch>,
 ) -> TypeDef<'sch> {
@@ -56,11 +58,11 @@ fn from_string<'sch>(
 
 fn type_enum<'sch>(
     types: &mut Types<'sch>,
-    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
+    name_comps: NameComponents<'sch>,
     schema: &'sch schema::Schema<'sch>,
     enum_: impl Iterator<Item = &'sch str> + Clone + 'sch,
 ) -> TypeDef<'sch> {
-    let handle = types.alloc_handle(name_comps);
+    let handle = types.alloc_handle(name_comps.into_iter());
 
     let enum_ = enum_.map(|word| (word, idents::pascal(word)));
     let variants: Vec<_> = enum_
@@ -178,7 +180,7 @@ fn from_boolean() -> TypeDef<'static> {
 
 fn from_array<'sch>(
     types: &mut Types<'sch>,
-    name_comps: impl Iterator<Item = NameComponent<'sch>> + 'sch,
+    name_comps: NameComponents<'sch>,
     index: &'sch schema::Index<'sch>,
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::ArraySchema<'sch>,
@@ -187,11 +189,14 @@ fn from_array<'sch>(
         .components()
         .resolve_schema(s.items(), |boxed| &*boxed);
 
+    let mut name_comps_item = name_comps.clone();
+    name_comps_item[0] = format!("{} Item", name_comps_item[0]).into();
+
     let item = schema_to_def(
         types,
         index,
         schema,
-        super::iter_change_first(name_comps, |first| format!("{} {}", first, "Item").into()),
+        name_comps_item,
     ); // TODO plural to singular conversion
 
     // Rust can't auto clone Rc for closures :(

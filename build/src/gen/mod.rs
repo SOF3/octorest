@@ -15,20 +15,7 @@ mod types;
 
 macro_rules! cow_iter {
     ($size:literal : $($args:expr),* $(,)?) => {{
-        struct Iter<'t>([&'t str; $size], usize);
-
-        impl<'t> Iterator for Iter<'t> {
-            type Item = Cow<'t, str>;
-
-            fn next(&mut self) -> Option<Cow<'t, str>> {
-                let option = self.0.get(self.1)
-                    .map(|&cow| Cow::from(cow));
-                self.1 += 1;
-                option
-            }
-        }
-
-        Iter([$($args),*], 0)
+        vec![$(Cow::from($args)),*]
     }};
 }
 
@@ -92,15 +79,4 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
 
     dbg!(ret.to_string());
     ret
-}
-
-fn iter_change_first<'t, T: 't>(
-    mut iter: impl Iterator<Item = T> + 't,
-    change: impl FnOnce(T) -> T,
-) -> impl Iterator<Item = T> + 't {
-    // boxing needed because rustc can't resolve recursive generics
-    Box::new(iter.next()
-        .map(change)
-        .into_iter()
-        .chain(iter)) as Box<dyn Iterator<Item = T> + 't>
 }
