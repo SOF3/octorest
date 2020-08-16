@@ -94,12 +94,13 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
     ret
 }
 
-fn iter_change_first<T>(
-    mut iter: impl Iterator<Item = T>,
+fn iter_change_first<'t, T: 't>(
+    mut iter: impl Iterator<Item = T> + 't,
     change: impl FnOnce(T) -> T,
-) -> impl Iterator<Item = T> {
-    iter.next()
-        .map(move |first| change(first))
+) -> impl Iterator<Item = T> + 't {
+    // boxing needed because rustc can't resolve recursive generics
+    Box::new(iter.next()
+        .map(change)
         .into_iter()
-        .chain(iter)
+        .chain(iter)) as Box<dyn Iterator<Item = T> + 't>
 }
