@@ -1,3 +1,5 @@
+//! The GitHub API client
+
 use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -10,8 +12,10 @@ use reqwest::multipart::Form;
 /// An authenticated GitHub API client
 #[derive(Getters)]
 pub struct Client {
+    /// The backing reqwest client
     #[getset(get = "pub")]
     reqwest: reqwest::Client,
+    /// The authentication provider
     #[getset(get = "pub")]
     auth: Mutex<Auth>,
 }

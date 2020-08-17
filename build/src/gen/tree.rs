@@ -46,7 +46,6 @@ impl<'t> NameTree<'t> {
                         .next()
                         .expect("name_iter prefix detected"),
                 );
-                // eprintln!("Detected duplicate entry {:?}, pushed to {:?}", &key, &other_key);
                 self.map.insert(other_key, Some(other_tree_entry));
             }
             // else, tree_entry was already pushed and we do not need to push it again.
@@ -56,8 +55,6 @@ impl<'t> NameTree<'t> {
 
         let handle = TreeHandle(self.next_handle);
         self.next_handle += 1;
-
-        // eprintln!("inserting {:?}", &key);
 
         let insert = self.map.insert(
             key,

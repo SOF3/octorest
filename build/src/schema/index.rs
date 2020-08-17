@@ -13,9 +13,19 @@ use super::{MaybeRef, MediaType, Parameter, Ref, Response, Schema};
 pub struct Index<'sch> {
     #[serde(borrow)]
     info: Info<'sch>,
+    tags: Vec<Tag<'sch>>,
     external_docs: ExternalDocs<'sch>,
     paths: Paths<'sch>,
     components: Components<'sch>,
+}
+
+#[derive(Deserialize, Getters)]
+#[serde(rename_all = "camelCase")]
+#[getset(get = "pub")]
+pub struct Tag<'sch> {
+    #[serde(borrow)]
+    name: Cow<'sch, str>,
+    description: Cow<'sch, str>,
 }
 
 #[derive(Deserialize, Getters)]

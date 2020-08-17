@@ -2,7 +2,7 @@ use std::iter;
 use std::rc::Rc;
 
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote};
 
 use super::{Lifetime, NameComponent, TypeDef, Types};
 use crate::{idents, schema};
@@ -76,7 +76,7 @@ fn type_enum<'sch>(
 
     TypeDef {
         def: handle.then_box(move |ident, _| {
-            let attrs = schema_attrs(schema);
+            let attrs = schema_attrs(ident.to_string().as_str(), schema);
             quote! {
                 #attrs
                 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -240,8 +240,10 @@ fn from_object<'sch>(
 
     let handle = types.alloc_handle(name_comps.into_iter());
     TypeDef {
-        def: handle.then_box(|ident, _| {
+        def: handle.then_box(move |ident, _| {
+            let attrs = schema_attrs(ident.to_string().as_str(), schema);
             quote! {
+                #attrs
                 pub struct #ident {
                     // TODO
                 }
@@ -256,11 +258,16 @@ fn from_object<'sch>(
     }
 }
 
-fn schema_attrs<'sch>(schema: &'sch schema::Schema<'sch>) -> TokenStream {
-    let description = schema
-        .description()
-        .as_ref()
-        .map(|desc| quote!(#[doc = #desc]));
+fn schema_attrs<'sch>(name: &'sch str, schema: &'sch schema::Schema<'sch>) -> TokenStream {
+    let description = match schema .description() .as_ref() {
+        Some(desc) => quote!(#[doc = #desc]),
+        None => {
+            use heck::TitleCase;
+
+            let title = name.to_title_case();
+            quote!(#[doc = #title])
+        },
+    };
 
     let deprecated = match schema.deprecated() {
         true => quote!(#[deprecated]),

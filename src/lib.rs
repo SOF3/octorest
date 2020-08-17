@@ -1,6 +1,6 @@
 #![cfg_attr(feature = "internal-docsrs", feature(doc_cfg))]
 
-mod client;
+pub mod client;
 pub use client::Client;
 
 /// An error at the transport layer

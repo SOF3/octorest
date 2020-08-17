@@ -1,7 +1,8 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_variables))]
 
-use std::{env, fmt, fs, io, path::Path, path::PathBuf};
+use std::{env, error::Error, fmt, fs, io, path::Path, path::PathBuf};
 
+use cfg_if::cfg_if;
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
 macro_rules! err {
@@ -15,10 +16,11 @@ mod gen;
 mod idents;
 mod schema;
 
-pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "dev")]
-    {
-        pretty_env_logger::init();
+pub fn main() -> Result<(), Box<dyn Error>> {
+    cfg_if! {
+        if #[cfg(feature = "dev")] {
+            pretty_env_logger::init();
+        }
     }
 
     #[derive(serde::Deserialize)]
@@ -34,39 +36,22 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let out_dir = PathBuf::from(&env::var("OUT_DIR").expect("defined by cargo"));
 
-    let pkg_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("api.github.com.json");
-    let json_path = if pkg_path.exists() {
-        pkg_path
-    } else {
-        todo!("Download latest version of https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json")
-        /*cfg_if! {
-            if #[cfg(feature = "online")] {
-                let client = reqwest::blocking::Client::new();
-                let data = client.get("https://api.github.com/repos/octokit/routes/releases/latest")
-                    .send().map_err(err!("Error fetching latest routes"))?
-                    .error_for_status().map_err(err!("Error fetching latest routes"))?
-                    .json::<ReleaseData>().map_err(err!("Error parsing routes release data"))?;
+    let json_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("api.github.com.json");
+    println!("cargo:rerun-if-changed={}", json_path.display());
 
-                let json_path = out_dir.join(&format!("{}.json", &data.tag_name));
-                if !json_path.exists() {
-                    log::info!("Downloading new routes version {}", &data.tag_name);
-                    let url = match data.assets.iter().filter(|asset| &asset.name == "api.github.com.json")
-                        .map(|asset| &asset.browser_download_url)
-                        .next() {
-                            Some(url) => url,
-                            None => return Err(Box::new(io::Error::new(io::ErrorKind::Other, "Latest octokit/routes release does not contain api.github.com.json"))),
-                        };
-                    let mut file = fs::File::create(url).map_err(Box::new)?;
-                    let _ = client.get(url) // we don't care about number of bytes written
-                        .send().map_err(Box::new)?
-                        .error_for_status().map_err(Box::new)?
-                        .copy_to(&mut file).map_err(Box::new)?;
-                }
-                json_path
+    if !json_path.exists() || cfg!(feature = "latest") {
+        cfg_if! {
+            if #[cfg(feature = "online")] {
+                let url = "https://github.com/github/rest-api-description/raw/main/descriptions/api.github.com/api.github.com.json";
+                task::<Result<_, Box<dyn Error>>, _, _>("Downloading api.github.com.json online", || {
+                    Ok(reqwest::blocking::get(url)?
+                        .copy_to(&mut fs::File::create(&json_path)?)?)
+                })?;
             } else {
+                // impossible path if feature="latest"
                 return Err(Box::new(io::Error::new(io::ErrorKind::Other, "`online` feature not enabled, but no packaged api.github.com.json is available")));
             }
-        }*/
+        }
     };
 
     let out_path = out_dir.join("out.rs");
@@ -89,7 +74,7 @@ fn write_token_stream(
     indent: usize,
     start_of_line: &mut bool,
 ) -> io::Result<()> {
-    use std::io::Write;
+    use io::Write;
 
     for token in ts {
         if *start_of_line {
@@ -145,14 +130,18 @@ fn write_token_stream(
     Ok(())
 }
 
-fn task<R>(name: &(impl fmt::Display + ?Sized), f: impl FnOnce() -> R) -> R {
+fn task<R, S, F>(name: &S, f: F) -> R
+where
+    S: fmt::Display + ?Sized,
+    F: FnOnce() -> R,
+{
     use std::time::Instant;
 
-    println!("[Phase start] {}", name);
+    log::info!("[Phase start] {}", name);
     let start = Instant::now();
     let r = f();
     let end = Instant::now();
-    println!("[Phase end] {} (spent {:?})", name, end - start);
+    log::info!("[Phase end] {} (spent {:?})", name, end - start);
     r
 }
 
