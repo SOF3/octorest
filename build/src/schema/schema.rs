@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, BTreeMap};
 use std::rc::Rc;
 
 use getset::{CopyGetters, Getters};
@@ -9,7 +9,7 @@ use serde::{de::IgnoredAny, Deserialize, Deserializer};
 use super::MaybeRef;
 use crate::gen;
 
-#[derive(Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 pub struct Schema<'sch> {
     #[serde(flatten)]
@@ -59,6 +59,7 @@ impl<'sch> Schema<'sch> {
     }
 }
 
+#[derive(Debug)]
 pub enum Typed<'sch> {
     String(StringSchema<'sch>),
     Integer(IntegerSchema<'sch>),
@@ -83,8 +84,35 @@ impl<'sch> Typed<'sch> {
 
 impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
+        /*
+        use serde::de::Error;
+
+        let mut value = serde_json::Map::deserialize(d)?;
+        Ok(match value.remove("type") {
+            Some(serde_json::Value::String(ty)) => {
+                match ty.as_str() {
+                    "string" => Self::String(serde_json::from_value(serde_json::Value::Object(value))
+                                             .map_err(|err| D::Error::custom(err))?),
+                    "integer" => Self::Integer(serde_json::from_value(serde_json::Value::Object(value)).map_err(|err| D::Error::custom(err))?),
+                    "number" => Self::Number(serde_json::from_value(serde_json::Value::Object(value)).map_err(|err| D::Error::custom(err))?),
+                    "boolean" => Self::Boolean(serde_json::from_value(serde_json::Value::Object(value)).map_err(|err| D::Error::custom(err))?),
+                    "object" => Self::Object(serde_json::from_value(serde_json::Value::Object(value)).map_err(|err| D::Error::custom(err))?),
+                    "array" => Self::Array(serde_json::from_value(serde_json::Value::Object(value)).map_err(|err| D::Error::custom(err))?),
+                    _ => return Err(D::Error::custom("Unknown type")),
+                }
+            },
+            _ if value.get("items").is_some() => {
+                Self::Array(serde_json::from_value(serde_json::Value::Object(value)).map_err(|err| D::Error::custom(err))?)
+            },
+            _ => Self::Object(serde_json::from_value(serde_json::Value::Object(value)).map_err(|err| D::Error::custom(err))?),
+        })
+
+        // TODO do not use serde_json::Value intermediate
+        */
+
+        #[derive(Debug, Deserialize)]
         #[serde(tag = "type")]
+        #[serde(rename_all = "camelCase")]
         enum Tagged<'sch> {
             #[serde(borrow)]
             String(StringSchema<'sch>),
@@ -95,7 +123,7 @@ impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
             Array(ArraySchema<'sch>),
         }
 
-        #[derive(Deserialize)]
+        #[derive(Debug, Deserialize)]
         #[serde(untagged)]
         enum Untagged<'sch> {
             #[serde(borrow)]
@@ -106,6 +134,9 @@ impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
         }
 
         let untagged = Untagged::deserialize(d)?;
+
+
+
         Ok(match untagged {
             Untagged::Tagged(Tagged::String(s)) => Typed::String(s),
             Untagged::Tagged(Tagged::Integer(s)) => Typed::Integer(s),
@@ -117,7 +148,7 @@ impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
     }
 }
 
-#[derive(Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct StringSchema<'sch> {
@@ -135,7 +166,7 @@ pub struct StringSchema<'sch> {
     max_length: Option<usize>,
 }
 
-#[derive(Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct IntegerSchema<'sch> {
@@ -149,7 +180,7 @@ pub struct IntegerSchema<'sch> {
     minimum: Option<i64>,
 }
 
-#[derive(Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct NumberSchema {
@@ -157,7 +188,7 @@ pub struct NumberSchema {
     default: Option<f64>,
 }
 
-#[derive(Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct BooleanSchema {
@@ -165,16 +196,16 @@ pub struct BooleanSchema {
     default: Option<bool>,
 }
 
-#[derive(Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectSchema<'sch> {
     #[getset(get = "pub")]
     #[serde(default)]
     #[serde(borrow)]
-    required: Vec<Cow<'sch, str>>,
+    required: BTreeSet<Cow<'sch, str>>,
     #[getset(get = "pub")]
     #[serde(default)]
-    properties: HashMap<Cow<'sch, str>, MaybeRef<'sch, Schema<'sch>>>,
+    properties: BTreeMap<Cow<'sch, str>, MaybeRef<'sch, Schema<'sch>>>,
     #[getset(get = "pub")]
     additional_properties: Option<AdditionalProperties<'sch>>,
     #[getset(get_copy = "pub")]
@@ -189,7 +220,7 @@ pub struct ObjectSchema<'sch> {
     default: Option<IgnoredAny>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
 pub enum AdditionalProperties<'sch> {
@@ -197,7 +228,7 @@ pub enum AdditionalProperties<'sch> {
     Bool(bool),
 }
 
-#[derive(Deserialize, Getters, CopyGetters)]
+#[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
 pub struct ArraySchema<'sch> {
     #[getset(get = "pub")]

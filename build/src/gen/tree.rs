@@ -1,5 +1,5 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
+use std::borrow::{Cow};
+use std::collections::BTreeMap;
 use std::iter;
 
 use proc_macro2::{Ident, TokenStream};
@@ -13,7 +13,7 @@ use crate::idents;
 /// `'t` is the lifetime of name iterators
 #[derive(Default)]
 pub struct NameTree<'t> {
-    map: HashMap<Vec<NameComponent<'t>>, Option<TreeEntry<'t>>>,
+    map: BTreeMap<String, Option<TreeEntry<'t>>>,
     next_handle: usize,
 }
 
@@ -30,8 +30,7 @@ impl<'t> NameTree<'t> {
             .map(NameComponent::from)
             .chain(iter::once(NameComponent::Borrowed("")));
 
-        let mut key = vec![];
-        key.push(name_iter.next().expect("name_iter is empty"));
+        let mut key = idents::pascal(&name_iter.next().expect("name_iter is empty")).to_string();
 
         while let Some(option) = self.map.get_mut(&key) {
             if let Some(mut other_tree_entry) = option.take() {
@@ -40,31 +39,32 @@ impl<'t> NameTree<'t> {
                 // because existence of `key` implies all `key + *` do not exist.
 
                 let mut other_key = key.clone();
-                other_key.push(
-                    other_tree_entry
+                log::debug!("Key collision: {}", &other_key);
+
+                other_key = idents::pascal(&other_tree_entry
                         .name_iter
                         .next()
-                        .expect("name_iter prefix detected"),
-                );
-                self.map.insert(other_key, Some(other_tree_entry));
+                        .expect("name_iter prefix detected"))
+                        .to_string() + &other_key; // prepend
+                self.map.insert(other_key.into(), Some(other_tree_entry));
             }
             // else, tree_entry was already pushed and we do not need to push it again.
 
-            key.push(name_iter.next().expect("name_iter prefix detected"));
+            key = idents::pascal(&name_iter.next().expect("name_iter prefix detected")).to_string() + &key; // prepend
         }
 
         let handle = TreeHandle(self.next_handle);
         self.next_handle += 1;
 
         let insert = self.map.insert(
-            key,
+            key.into(),
             Some(TreeEntry {
                 name_iter: Box::new(name_iter),
                 handle,
             }),
         );
         if insert.is_some() {
-            panic!("self.map.get_mut(&key) was None");
+            panic!("self.map.get_mut was None but insert is some");
         }
 
         handle
@@ -72,10 +72,9 @@ impl<'t> NameTree<'t> {
 
     pub fn resolve(self) -> NameTreeResolve {
         let mut ret = (0..self.next_handle).map(|_| None).collect::<Vec<_>>();
-        for (mut key, value) in self.map {
+        for (key, value) in self.map {
             if let Some(tree_entry) = value {
-                key.reverse();
-                let ident = idents::pascal(&key.join(" "));
+                let ident = proc_macro2::Ident::new(&key, proc_macro2::Span::call_site());
                 let path = quote!(crate::types::#ident);
                 ret[tree_entry.handle.0] = Some(ResolvedEntry { ident, path });
             }
@@ -85,6 +84,8 @@ impl<'t> NameTree<'t> {
 }
 
 pub type NameComponent<'t> = Cow<'t, str>;
+
+pub type NameComponents<'t> = Vec<NameComponent<'t>>;
 
 struct TreeEntry<'t> {
     name_iter: Box<dyn Iterator<Item = NameComponent<'t>> + 't>,
@@ -106,6 +107,11 @@ pub struct TreeHandle(usize);
 impl TreeHandle {
     pub fn then<R, F: FnOnce(&Ident, &TokenStream) -> R>(self, f: F) -> TreeHandleThen<R, F> {
         TreeHandleThen(self.0, f)
+    }
+
+    pub fn resolve<'t>(self, ntr: &'t NameTreeResolve) -> (&'t Ident, &'t TokenStream) {
+        let entry = ntr.0[self.0].as_ref().expect("Unresolved ident");
+        (&entry.ident, &entry.path)
     }
 
     pub fn then_box<'t, R: 't, F: Fn(&Ident, &TokenStream) -> R + 't>(

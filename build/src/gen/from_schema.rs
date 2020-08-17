@@ -4,10 +4,8 @@ use std::rc::Rc;
 use proc_macro2::TokenStream;
 use quote::{quote};
 
-use super::{Lifetime, NameComponent, TypeDef, Types};
+use super::{Lifetime, NameComponents, TypeDef, Types};
 use crate::{idents, schema};
-
-pub type NameComponents<'sch> = Vec<NameComponent<'sch>>;
 
 /// Computes the `TypeDef` for this schema,
 /// assigning types to `types` and filling `schema.tree_handle` if necessary,
@@ -18,8 +16,11 @@ pub fn schema_to_def<'sch>(
     schema: &'sch schema::Schema<'sch>,
     name_comps: NameComponents<'sch>,
 ) -> Rc<TypeDef<'sch>> {
+    log::debug!("schema_to_def(name_comps = {:?})", &name_comps);
+
     let def = schema.get_type_def(&mut *types);
     if let Some(def) = def {
+        log::debug!("schema_to_def duplicate on {:?}", &name_comps);
         return Rc::clone(def);
     }
     let def: TypeDef<'sch> = match schema.typed() {
@@ -227,25 +228,37 @@ fn from_object<'sch>(
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::ObjectSchema<'sch>,
 ) -> TypeDef<'sch> {
-    let properties = s.properties().iter().map(|(name, subschema)| {
+    // log::debug!("from_object: {:?} {:#?}", &name_comps, schema);
+
+    let properties: Vec<(_, _)> = s.properties().iter().map(|(name, subschema)| {
         let subschema = index.components().resolve_schema(subschema, crate::id);
         let subname: Vec<_> = iter::once(name.clone())
             .chain(name_comps.iter().cloned())
             .collect();
-        let subty = schema_to_def(&mut *types, index, subschema, subname);
+        let subty = schema_to_def(&mut *types, index, subschema, subname.into());
         (name, subty)
-    });
+    }).collect();
 
     // TODO process other fields
 
     let handle = types.alloc_handle(name_comps.into_iter());
     TypeDef {
-        def: handle.then_box(move |ident, _| {
+        def: Box::new(move |ntr| {
+            let (ident, path) = handle.resolve(ntr);
+
+            /*
+            let fields: TokenStream = properties.iter().map(|(name, subty)| {
+                let subty_path = (subty.as_ser)(ntr);
+                quote! {
+                    #name: #subty_path,
+                }
+            }).collect();
+            */
+
             let attrs = schema_attrs(ident.to_string().as_str(), schema);
             quote! {
                 #attrs
                 pub struct #ident {
-                    // TODO
                 }
             }
         }),

@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use self::from_schema::schema_to_def;
-use self::tree::{NameComponent, NameTree, NameTreeResolve, TreeHandle};
+use self::tree::{NameComponent, NameComponents,NameTree, NameTreeResolve, TreeHandle};
 use self::types::Lifetime;
 pub use self::types::{TypeDef, Types};
 use crate::{idents, schema};
