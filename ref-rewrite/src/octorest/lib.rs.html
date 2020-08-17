@@ -25,7 +25,7 @@
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">cfg_attr</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;internal-docsrs&quot;</span>, <span class="ident">feature</span>(<span class="ident">doc_cfg</span>))]</span>
 
-<span class="kw">mod</span> <span class="ident">client</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">client</span>;
 <span class="kw">pub</span> <span class="kw">use</span> <span class="ident">client</span>::<span class="ident">Client</span>;
 
 <span class="doccomment">/// An error at the transport layer</span>

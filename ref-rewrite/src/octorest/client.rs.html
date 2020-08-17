@@ -221,7 +221,13 @@
 <span id="220">220</span>
 <span id="221">221</span>
 <span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
+<span id="226">226</span>
 </pre><div class="example-wrap"><pre class="rust ">
+<span class="doccomment">//! The GitHub API client</span>
+
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">borrow</span>::<span class="ident">Cow</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">sync</span>::<span class="ident">Arc</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">time</span>::{<span class="ident">Duration</span>, <span class="ident">Instant</span>, <span class="ident">SystemTime</span>};
@@ -234,8 +240,10 @@
 <span class="doccomment">/// An authenticated GitHub API client</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Getters</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Client</span> {
+    <span class="doccomment">/// The backing reqwest client</span>
     <span class="attribute">#[<span class="ident">getset</span>(<span class="ident">get</span> <span class="op">=</span> <span class="string">&quot;pub&quot;</span>)]</span>
     <span class="ident">reqwest</span>: <span class="ident">reqwest</span>::<span class="ident">Client</span>,
+    <span class="doccomment">/// The authentication provider</span>
     <span class="attribute">#[<span class="ident">getset</span>(<span class="ident">get</span> <span class="op">=</span> <span class="string">&quot;pub&quot;</span>)]</span>
     <span class="ident">auth</span>: <span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">Auth</span><span class="op">&gt;</span>,
 }

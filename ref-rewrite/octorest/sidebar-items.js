@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["TransportError","An error at the transport layer"]],"mod":[["types",""]],"struct":[["Client","An authenticated GitHub API client"]]});
+initSidebarItems({"enum":[["TransportError","An error at the transport layer"]],"mod":[["apis","Categorized GitHub API endpoints"],["client","The GitHub API client"],["types","Miscellaneous data types used in the GitHub API."]]});
