@@ -1,3 +1,3 @@
 (function() {var implementors = {};
-implementors["octorest"] = [{"text":"impl ErrorCompat for <a class=\"enum\" href=\"octorest/enum.TransportError.html\" title=\"enum octorest::TransportError\">TransportError</a>","synthetic":false,"types":["octorest::TransportError"]}];
+implementors["octorest"] = [{"text":"impl ErrorCompat for TransportError","synthetic":false,"types":[]}];
 if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
