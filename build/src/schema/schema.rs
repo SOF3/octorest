@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::collections::{BTreeSet, BTreeMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use getset::{CopyGetters, Getters};
@@ -135,8 +135,6 @@ impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
 
         let untagged = Untagged::deserialize(d)?;
 
-
-
         Ok(match untagged {
             Untagged::Tagged(Tagged::String(s)) => Typed::String(s),
             Untagged::Tagged(Tagged::Integer(s)) => Typed::Integer(s),
@@ -150,7 +148,6 @@ impl<'de: 'sch, 'sch> Deserialize<'de> for Typed<'sch> {
 
 #[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
 pub struct StringSchema<'sch> {
     #[getset(get = "pub")]
     default: Option<Cow<'sch, str>>,
@@ -164,11 +161,11 @@ pub struct StringSchema<'sch> {
     min_length: Option<usize>,
     #[getset(get_copy = "pub")]
     max_length: Option<usize>,
+    example: Option<IgnoredAny>,
 }
 
 #[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
 pub struct IntegerSchema<'sch> {
     #[getset(get_copy = "pub")]
     default: Option<i64>,
@@ -182,7 +179,6 @@ pub struct IntegerSchema<'sch> {
 
 #[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
 pub struct NumberSchema {
     #[getset(get_copy = "pub")]
     default: Option<f64>,
@@ -190,7 +186,6 @@ pub struct NumberSchema {
 
 #[derive(Debug, Deserialize, Getters, CopyGetters)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
 pub struct BooleanSchema {
     #[getset(get_copy = "pub")]
     default: Option<bool>,
@@ -222,7 +217,6 @@ pub struct ObjectSchema<'sch> {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-#[serde(deny_unknown_fields)]
 pub enum AdditionalProperties<'sch> {
     Schema(#[serde(borrow)] MaybeRef<'sch, Box<Schema<'sch>>>),
     Bool(bool),

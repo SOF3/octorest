@@ -6,6 +6,7 @@ use serde::de::IgnoredAny;
 use serde::Deserialize;
 
 use super::{MaybeRef, MediaType, Parameter, Ref, Response, Schema};
+use crate::gen::{NameComponent, NameComponents};
 
 #[derive(Deserialize, Getters, MutGetters)]
 #[serde(rename_all = "camelCase")]
@@ -110,16 +111,22 @@ pub struct Components<'sch> {
 }
 
 impl<'sch> Components<'sch> {
-    pub fn resolve_schema<'t, S, F>(&'t self, mr: &'t MaybeRef<'sch, S>, f: F) -> &'t Schema<'sch>
+    pub fn resolve_schema<'t, S, F, N>(
+        &'t self,
+        mr: &'t MaybeRef<'sch, S>,
+        f: F,
+        name: N,
+    ) -> (&'t Schema<'sch>, NameComponents<'sch>)
     where
         F: FnOnce(&'t S) -> &'t Schema<'sch>,
+        N: FnOnce() -> NameComponents<'sch>,
     {
         match mr {
-            MaybeRef::Owned(schema) => f(schema),
+            MaybeRef::Owned(schema) => (f(schema), name()),
             MaybeRef::Ref(Ref { target }) => {
-                if let Some(name) = target.strip_prefix("#/components/schemas/") {
-                    match self.schemas.get(name) {
-                        Some(schema) => schema,
+                if let Some(target_name) = target.strip_prefix("#/components/schemas/") {
+                    match self.schemas.get(target_name) {
+                        Some(schema) => (schema, vec![NameComponent::prepend(target_name), NameComponent::append("schema"), NameComponent::append("comp")]),
                         None => panic!("Schema {:?} not found", target),
                     }
                 } else {

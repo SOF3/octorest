@@ -1,4 +1,4 @@
-use std::borrow::{Cow};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::iter;
 
@@ -20,17 +20,12 @@ pub struct NameTree<'t> {
 impl<'t> NameTree<'t> {
     /// `name_iter` is the iterator that yields next name copmonents.
     /// In the output ident, the order of strings created by `name_iter` will be reversed.  `name_iter` must not yield empty strings.
-    pub fn insert<C: 't, I>(&mut self, name_iter: I) -> TreeHandle
+    pub fn insert<I>(&mut self, name_iter: I) -> TreeHandle
     where
-        NameComponent<'t>: From<C>,
-        I: IntoIterator<Item = C> + 't,
+        I: IntoIterator<Item = NameComponent<'t>> + 't,
     {
-        let mut name_iter = name_iter
-            .into_iter()
-            .map(NameComponent::from)
-            .chain(iter::once(NameComponent::Borrowed("")));
-
-        let mut key = idents::pascal(&name_iter.next().expect("name_iter is empty")).to_string();
+        let mut name_iter = name_iter.into_iter();
+        let mut key = idents::pascal(&name_iter.next().expect("name_iter is empty").cow).to_string();
 
         while let Some(option) = self.map.get_mut(&key) {
             if let Some(mut other_tree_entry) = option.take() {
@@ -41,16 +36,27 @@ impl<'t> NameTree<'t> {
                 let mut other_key = key.clone();
                 log::debug!("Key collision: {}", &other_key);
 
-                other_key = idents::pascal(&other_tree_entry
+                let next_comp = other_tree_entry
                         .name_iter
                         .next()
-                        .expect("name_iter prefix detected"))
-                        .to_string() + &other_key; // prepend
+                        .expect("name_iter prefix detected");
+                let next_comp_cow = idents::pascal(next_comp.cow.as_ref()).to_string();
+                if next_comp.prepend {
+                    other_key = next_comp_cow + &other_key;
+                } else {
+                    other_key += &next_comp_cow;
+                }
                 self.map.insert(other_key.into(), Some(other_tree_entry));
             }
             // else, tree_entry was already pushed and we do not need to push it again.
 
-            key = idents::pascal(&name_iter.next().expect("name_iter prefix detected")).to_string() + &key; // prepend
+            let next_comp = name_iter.next().expect("name_iter prefix detected");
+            let next_comp_cow = idents::pascal(next_comp.cow.as_ref()).to_string();
+            if next_comp.prepend {
+                key = next_comp_cow + &key;
+            } else {
+                key += &next_comp_cow;
+            }
         }
 
         let handle = TreeHandle(self.next_handle);
@@ -83,7 +89,27 @@ impl<'t> NameTree<'t> {
     }
 }
 
-pub type NameComponent<'t> = Cow<'t, str>;
+#[derive(Debug, Clone)]
+pub struct NameComponent<'t> {
+    pub(super) cow: Cow<'t, str>,
+    pub(super) prepend: bool,
+}
+
+impl<'t> NameComponent<'t> {
+    pub fn prepend(cow: impl Into<Cow<'t, str>>) -> Self {
+        Self {
+            cow: cow.into(),
+            prepend: true,
+        }
+    }
+
+    pub fn append(cow: impl Into<Cow<'t, str>>) -> Self {
+        Self {
+            cow: cow.into(),
+            prepend: false,
+        }
+    }
+}
 
 pub type NameComponents<'t> = Vec<NameComponent<'t>>;
 

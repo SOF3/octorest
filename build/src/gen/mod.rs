@@ -4,7 +4,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use self::from_schema::schema_to_def;
-use self::tree::{NameComponent, NameComponents,NameTree, NameTreeResolve, TreeHandle};
+pub use self::tree::{NameComponent, NameComponents};
+use self::tree::{NameTree, NameTreeResolve, TreeHandle};
 use self::types::Lifetime;
 pub use self::types::{TypeDef, Types};
 use crate::{idents, schema};
@@ -12,12 +13,6 @@ use crate::{idents, schema};
 mod from_schema;
 mod tree;
 mod types;
-
-macro_rules! cow_iter {
-    ($size:literal : $($args:expr),* $(,)?) => {{
-        vec![$(Cow::from($args)),*]
-    }};
-}
 
 pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
     let mut types = Types::default();
@@ -28,43 +23,39 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
                 &mut types,
                 index,
                 schema,
-                cow_iter![3: &**name, "schema", "comp"],
+                vec![NameComponent::prepend(&**name), NameComponent::append("schema"), NameComponent::append("comp")],
             );
         }
     });
     crate::task("Generate types for .components.parameters", || {
         for (name, param) in index.components().parameters() {
-            schema_to_def(
-                &mut types,
-                index,
-                index.components().resolve_schema(param.schema(), crate::id),
-                cow_iter![3: &**name, "param", "comp"],
+            let (schema, name_comps) = index.components().resolve_schema(
+                param.schema(),
+                crate::id,
+                || vec![NameComponent::prepend(&**name), NameComponent::append("param"), NameComponent::append("comp")],
             );
+            schema_to_def(&mut types, index, schema, name_comps);
         }
     });
     crate::task("Generate types for .components.headers", || {
         for (name, media_type) in index.components().headers() {
-            schema_to_def(
-                &mut types,
-                index,
-                index
-                    .components()
-                    .resolve_schema(media_type.schema(), crate::id),
-                cow_iter![3: &**name, "header", "comp"],
+            let (schema, name_comps) = index.components().resolve_schema(
+                media_type.schema(),
+                crate::id,
+                || vec![NameComponent::prepend(&**name), NameComponent::append("header"), NameComponent::append("comp")],
             );
+            schema_to_def(&mut types, index, schema, name_comps);
         }
     });
     crate::task("Generate types for .components.responses", || {
         for (name, response) in index.components().responses() {
             for (mime, media_type) in response.content() {
-                schema_to_def(
-                    &mut types,
-                    index,
-                    index
-                        .components()
-                        .resolve_schema(media_type.schema(), crate::id),
-                    cow_iter![3: &**name, "response", "comp"],
+                let (schema, name_comps) = index.components().resolve_schema(
+                    media_type.schema(),
+                    crate::id,
+                || vec![NameComponent::prepend(&**name), NameComponent::append("response"), NameComponent::append("comp")],
                 );
+                schema_to_def(&mut types, index, schema, name_comps);
             }
         }
     });
@@ -73,7 +64,7 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
 
     let mut tag_getters = quote!();
     let mut tag_structs = quote!();
-    for tag in index.tags(){
+    for tag in index.tags() {
         use heck::KebabCase;
 
         let feature = format!("gh-{}", tag.name().to_kebab_case());

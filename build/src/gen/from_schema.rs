@@ -2,9 +2,9 @@ use std::iter;
 use std::rc::Rc;
 
 use proc_macro2::TokenStream;
-use quote::{quote};
+use quote::quote;
 
-use super::{Lifetime, NameComponents, TypeDef, Types};
+use super::{Lifetime, NameComponent, NameComponents, TypeDef, Types};
 use crate::{idents, schema};
 
 /// Computes the `TypeDef` for this schema,
@@ -186,13 +186,15 @@ fn from_array<'sch>(
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::ArraySchema<'sch>,
 ) -> TypeDef<'sch> {
-    let items = index
+    let (items, name_comps_item) = index
         .components()
-        .resolve_schema(s.items(), |boxed| &*boxed);
-
-    let mut name_comps_item = name_comps.clone();
-    name_comps_item[0] = format!("{} Item", name_comps_item[0]).into();
-    // TODO plural to singular conversion
+        .resolve_schema(s.items(), |boxed| &*boxed, || {
+            let mut name_comps_item = name_comps.clone();
+            let first = &mut name_comps_item[0];
+            first.cow = format!("{} Item", &first.cow).into();
+            // TODO plural to singular conversion
+            name_comps_item
+        });
 
     let item = schema_to_def(types, index, items, name_comps_item);
 
@@ -228,16 +230,20 @@ fn from_object<'sch>(
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::ObjectSchema<'sch>,
 ) -> TypeDef<'sch> {
-    // log::debug!("from_object: {:?} {:#?}", &name_comps, schema);
-
-    let properties: Vec<(_, _)> = s.properties().iter().map(|(name, subschema)| {
-        let subschema = index.components().resolve_schema(subschema, crate::id);
-        let subname: Vec<_> = iter::once(name.clone())
-            .chain(name_comps.iter().cloned())
-            .collect();
-        let subty = schema_to_def(&mut *types, index, subschema, subname.into());
-        (name, subty)
-    }).collect();
+    let properties: Vec<(_, _)> = s
+        .properties()
+        .iter()
+        .map(|(name, subschema)| {
+            let (subschema, subname) =
+                index.components().resolve_schema(subschema, crate::id, || {
+                    iter::once(NameComponent::prepend(name.clone()))
+                        .chain(name_comps.iter().cloned())
+                        .collect()
+                });
+            let subty = schema_to_def(&mut *types, index, subschema, subname);
+            (name, subty)
+        })
+        .collect();
 
     // TODO process other fields
 
@@ -272,14 +278,14 @@ fn from_object<'sch>(
 }
 
 fn schema_attrs<'sch>(name: &'sch str, schema: &'sch schema::Schema<'sch>) -> TokenStream {
-    let description = match schema .description() .as_ref() {
+    let description = match schema.description().as_ref() {
         Some(desc) => quote!(#[doc = #desc]),
         None => {
             use heck::TitleCase;
 
             let title = name.to_title_case();
             quote!(#[doc = #title])
-        },
+        }
     };
 
     let deprecated = match schema.deprecated() {
