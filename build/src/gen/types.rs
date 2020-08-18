@@ -41,6 +41,8 @@ impl<'t> Types<'t> {
 pub struct TypeDef<'t> {
     /// The type definition, if any
     pub def: Box<dyn Fn(&NameTreeResolve) -> TokenStream + 't>,
+    /// whether the type implements `Copy` (and should use copy getters instead of ref getters)
+    pub is_copy: bool,
     /// whether the type takes a lifetime
     pub lifetime: Lifetime,
     /// The argument type in builder, using lifetime `'ser` if `self.has_lifetime`

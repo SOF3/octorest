@@ -126,7 +126,14 @@ impl<'sch> Components<'sch> {
             MaybeRef::Ref(Ref { target }) => {
                 if let Some(target_name) = target.strip_prefix("#/components/schemas/") {
                     match self.schemas.get(target_name) {
-                        Some(schema) => (schema, vec![NameComponent::prepend(target_name), NameComponent::append("schema"), NameComponent::append("comp")]),
+                        Some(schema) => (
+                            schema,
+                            vec![
+                                NameComponent::prepend(target_name),
+                                NameComponent::append("schema"),
+                                NameComponent::append("comp"),
+                            ],
+                        ),
                         None => panic!("Schema {:?} not found", target),
                     }
                 } else {

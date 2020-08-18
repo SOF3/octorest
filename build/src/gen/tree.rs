@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::iter;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
@@ -25,7 +24,8 @@ impl<'t> NameTree<'t> {
         I: IntoIterator<Item = NameComponent<'t>> + 't,
     {
         let mut name_iter = name_iter.into_iter();
-        let mut key = idents::pascal(&name_iter.next().expect("name_iter is empty").cow).to_string();
+        let mut key =
+            idents::pascal(&name_iter.next().expect("name_iter is empty").cow).to_string();
 
         while let Some(option) = self.map.get_mut(&key) {
             if let Some(mut other_tree_entry) = option.take() {
@@ -37,16 +37,16 @@ impl<'t> NameTree<'t> {
                 log::debug!("Key collision: {}", &other_key);
 
                 let next_comp = other_tree_entry
-                        .name_iter
-                        .next()
-                        .expect("name_iter prefix detected");
+                    .name_iter
+                    .next()
+                    .expect("name_iter prefix detected");
                 let next_comp_cow = idents::pascal(next_comp.cow.as_ref()).to_string();
                 if next_comp.prepend {
                     other_key = next_comp_cow + &other_key;
                 } else {
                     other_key += &next_comp_cow;
                 }
-                self.map.insert(other_key.into(), Some(other_tree_entry));
+                self.map.insert(other_key, Some(other_tree_entry));
             }
             // else, tree_entry was already pushed and we do not need to push it again.
 
@@ -63,7 +63,7 @@ impl<'t> NameTree<'t> {
         self.next_handle += 1;
 
         let insert = self.map.insert(
-            key.into(),
+            key,
             Some(TreeEntry {
                 name_iter: Box::new(name_iter),
                 handle,
@@ -135,7 +135,7 @@ impl TreeHandle {
         TreeHandleThen(self.0, f)
     }
 
-    pub fn resolve<'t>(self, ntr: &'t NameTreeResolve) -> (&'t Ident, &'t TokenStream) {
+    pub fn resolve(self, ntr: &NameTreeResolve) -> (&Ident, &TokenStream) {
         let entry = ntr.0[self.0].as_ref().expect("Unresolved ident");
         (&entry.ident, &entry.path)
     }

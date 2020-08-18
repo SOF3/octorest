@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -23,38 +21,57 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
                 &mut types,
                 index,
                 schema,
-                vec![NameComponent::prepend(&**name), NameComponent::append("schema"), NameComponent::append("comp")],
+                vec![
+                    NameComponent::prepend(&**name),
+                    NameComponent::append("schema"),
+                    NameComponent::append("comp"),
+                ],
             );
         }
     });
     crate::task("Generate types for .components.parameters", || {
         for (name, param) in index.components().parameters() {
-            let (schema, name_comps) = index.components().resolve_schema(
-                param.schema(),
-                crate::id,
-                || vec![NameComponent::prepend(&**name), NameComponent::append("param"), NameComponent::append("comp")],
-            );
+            let (schema, name_comps) =
+                index
+                    .components()
+                    .resolve_schema(param.schema(), crate::id, || {
+                        vec![
+                            NameComponent::prepend(&**name),
+                            NameComponent::append("param"),
+                            NameComponent::append("comp"),
+                        ]
+                    });
             schema_to_def(&mut types, index, schema, name_comps);
         }
     });
     crate::task("Generate types for .components.headers", || {
         for (name, media_type) in index.components().headers() {
-            let (schema, name_comps) = index.components().resolve_schema(
-                media_type.schema(),
-                crate::id,
-                || vec![NameComponent::prepend(&**name), NameComponent::append("header"), NameComponent::append("comp")],
-            );
+            let (schema, name_comps) =
+                index
+                    .components()
+                    .resolve_schema(media_type.schema(), crate::id, || {
+                        vec![
+                            NameComponent::prepend(&**name),
+                            NameComponent::append("header"),
+                            NameComponent::append("comp"),
+                        ]
+                    });
             schema_to_def(&mut types, index, schema, name_comps);
         }
     });
     crate::task("Generate types for .components.responses", || {
         for (name, response) in index.components().responses() {
             for (mime, media_type) in response.content() {
-                let (schema, name_comps) = index.components().resolve_schema(
-                    media_type.schema(),
-                    crate::id,
-                || vec![NameComponent::prepend(&**name), NameComponent::append("response"), NameComponent::append("comp")],
-                );
+                let (schema, name_comps) =
+                    index
+                        .components()
+                        .resolve_schema(media_type.schema(), crate::id, || {
+                            vec![
+                                NameComponent::prepend(&**name),
+                                NameComponent::append("response"),
+                                NameComponent::append("comp"),
+                            ]
+                        });
                 schema_to_def(&mut types, index, schema, name_comps);
             }
         }
@@ -95,6 +112,8 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
 
     let ret = quote! {
         /// Categorized GitHub API endpoints
+        #[allow(unused_parens)]
+        #[allow(clippy::double_parens)]
         pub mod apis {
             impl crate::Client {
                 #tag_getters
@@ -107,6 +126,8 @@ pub fn gen<'sch>(index: &'sch schema::Index<'sch>) -> TokenStream {
         ///
         /// The API is designed such that users shall not need to explicitly import types from this
         /// module.
+        #[allow(unused_parens)]
+        #[allow(clippy::double_parens)]
         pub mod types {
             #types
         }

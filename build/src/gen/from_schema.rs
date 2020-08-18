@@ -90,6 +90,7 @@ fn type_enum<'sch>(
                 }
             }
         }),
+        is_copy: true,
         lifetime: Lifetime::empty(),
         as_arg: handle.then_box(|_, path| quote!(#path)),
         arg_to_ser: Box::new(|_, expr| quote!((#expr))),
@@ -102,6 +103,7 @@ fn type_enum<'sch>(
 fn type_date_time() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
+        is_copy: true,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(std::time::SystemTime)),
         arg_to_ser: Box::new(|_, expr| quote!(chrono::DateTime::from(#expr))),
@@ -114,6 +116,7 @@ fn type_date_time() -> TypeDef<'static> {
 fn type_str<'sch>(s: &'sch schema::StringSchema<'sch>) -> TypeDef<'sch> {
     TypeDef {
         def: Box::new(|_| quote!()),
+        is_copy: true,
         lifetime: Lifetime::all(),
         as_arg: Box::new(|_| quote!(&'ser str)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -134,6 +137,7 @@ fn from_integer<'sch>(s: &'sch schema::IntegerSchema<'sch>) -> TypeDef<'sch> {
 fn type_timestamp() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
+        is_copy: true,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!()),
         arg_to_ser: Box::new(|_, expr| quote!((#expr - std::time::UNIX_EPOCH).as_secs())),
@@ -146,6 +150,7 @@ fn type_timestamp() -> TypeDef<'static> {
 fn type_int() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
+        is_copy: true,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(i64)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -158,6 +163,7 @@ fn type_int() -> TypeDef<'static> {
 fn from_number(s: &schema::NumberSchema) -> TypeDef<'_> {
     TypeDef {
         def: Box::new(|_| quote!()),
+        is_copy: true,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(f64)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -170,6 +176,7 @@ fn from_number(s: &schema::NumberSchema) -> TypeDef<'_> {
 fn from_boolean() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
+        is_copy: true,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(bool)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -186,38 +193,50 @@ fn from_array<'sch>(
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::ArraySchema<'sch>,
 ) -> TypeDef<'sch> {
-    let (items, name_comps_item) = index
-        .components()
-        .resolve_schema(s.items(), |boxed| &*boxed, || {
+    let (items, name_comps_item) = index.components().resolve_schema(
+        s.items(),
+        |boxed| &*boxed,
+        || {
             let mut name_comps_item = name_comps.clone();
             let first = &mut name_comps_item[0];
             first.cow = format!("{} Item", &first.cow).into();
             // TODO plural to singular conversion
             name_comps_item
-        });
+        },
+    );
 
     let item = schema_to_def(types, index, items, name_comps_item);
 
-    // Rust can't auto clone Rc for closures :(
-    let item1 = Rc::clone(&item);
-    let item2 = Rc::clone(&item);
-    let item3 = Rc::clone(&item);
+    let mut lifetime = Lifetime::ARG | Lifetime::SER;
+    if item.lifetime.contains(Lifetime::DESER) {
+        lifetime |= Lifetime::DESER;
+    }
 
     TypeDef {
         def: Box::new(|_| quote!()),
-        lifetime: Lifetime::ARG | Lifetime::SER,
-        as_arg: Box::new(move |ntr| {
-            let item_arg = (item1.as_arg)(ntr);
-            quote!(&'ser [#item_arg])
+        is_copy: false,
+        lifetime,
+        as_arg: Box::new({
+            let item = Rc::clone(&item);
+            move |ntr| {
+                let item_arg = (item.as_arg)(ntr);
+                quote!(&'ser [#item_arg])
+            }
         }),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)), // TODO fix if as_arg and as_ser are different
-        as_ser: Box::new(move |ntr| {
-            let item_arg = (item2.as_ser)(ntr);
-            quote!(&'ser [#item_arg])
+        as_ser: Box::new({
+            let item = Rc::clone(&item);
+            move |ntr| {
+                let item_arg = (item.as_ser)(ntr);
+                quote!(&'ser [#item_arg])
+            }
         }),
-        as_de: Box::new(move |ntr| {
-            let item_arg = (item3.as_de)(ntr);
-            quote!(Vec<#item_arg>)
+        as_de: Box::new({
+            let item = Rc::clone(&item);
+            move |ntr| {
+                let item_arg = (item.as_de)(ntr);
+                quote!(Vec<#item_arg>)
+            }
         }),
         format: Box::new(|_, _| unimplemented!("could not serialize arrays")),
     }
@@ -230,7 +249,7 @@ fn from_object<'sch>(
     schema: &'sch schema::Schema<'sch>,
     s: &'sch schema::ObjectSchema<'sch>,
 ) -> TypeDef<'sch> {
-    let properties: Vec<(_, _)> = s
+    let properties: Vec<(_, _, _)> = s
         .properties()
         .iter()
         .map(|(name, subschema)| {
@@ -241,38 +260,169 @@ fn from_object<'sch>(
                         .collect()
                 });
             let subty = schema_to_def(&mut *types, index, subschema, subname);
-            (name, subty)
+            (name, subschema, subty)
         })
         .collect();
+    let properties = Rc::new(properties);
+
+    let lifetime = properties
+        .iter()
+        .map(|(_, _, subty)| subty.lifetime)
+        .fold(Lifetime::empty(), |a, b| a | b);
 
     // TODO process other fields
 
     let handle = types.alloc_handle(name_comps.into_iter());
     TypeDef {
-        def: Box::new(move |ntr| {
-            let (ident, path) = handle.resolve(ntr);
+        def: Box::new({
+            let properties = Rc::clone(&properties);
+            move |ntr| {
+                let (ident, _) = handle.resolve(ntr);
 
-            /*
-            let fields: TokenStream = properties.iter().map(|(name, subty)| {
-                let subty_path = (subty.as_ser)(ntr);
-                quote! {
-                    #name: #subty_path,
-                }
-            }).collect();
-            */
+                let ser = {
+                    let ident_ser = idents::pascal(&format!("{} arg", ident));
 
-            let attrs = schema_attrs(ident.to_string().as_str(), schema);
-            quote! {
-                #attrs
-                pub struct #ident {
-                }
+                    let fields: TokenStream = properties
+                        .iter()
+                        .map(|(name, subschema, subty)| {
+                            let name = idents::snake(name.as_ref());
+                            let mut subty_path = (subty.as_ser)(ntr);
+                            if subschema.nullable() || subschema.typed().has_default() {
+                                subty_path = quote!(Option<#subty_path>);
+                            }
+                            quote! {
+                                #name: #subty_path,
+                            }
+                        })
+                        .collect();
+                    let subty_lifetime = if lifetime.contains(Lifetime::SER) {
+                        quote!(<'ser>)
+                    } else {
+                        quote!()
+                    };
+
+                    let field_setters: TokenStream = properties
+                        .iter()
+                        .map(|(name, subschema, subty)| {
+                            let name = idents::snake(name.as_ref());
+                            let fn_name = idents::snake(&format!("with_{}", &name));
+
+                            let arg_ty = (subty.as_arg)(ntr);
+
+                            let mut arg_to_ser = (subty.arg_to_ser)(ntr, quote!(value));
+                            if subschema.nullable() || subschema.typed().has_default() {
+                                arg_to_ser = quote!(Some(#arg_to_ser));
+                            }
+
+                            quote! {
+                                pub fn #fn_name(mut self, value: #arg_ty) -> Self {
+                                    self.#name = #arg_to_ser;
+                                    self
+                                }
+                            }
+                        })
+                        .collect();
+
+                    let attrs = schema_attrs(ident.to_string().as_str(), schema);
+                    quote! {
+                        #attrs
+                        pub struct #ident_ser #subty_lifetime { #fields }
+
+                        impl #subty_lifetime #ident_ser #subty_lifetime {
+                            #field_setters
+                        }
+                    }
+                };
+                let de = {
+                    let ident_de = idents::pascal(&format!("{} response", ident));
+
+                    let fields: TokenStream = properties
+                        .iter()
+                        .map(|(name, subschema, subty)| {
+                            let name = idents::snake(name.as_ref());
+                            let mut subty_path = (subty.as_de)(ntr);
+                            if subschema.nullable() || subschema.typed().has_default() {
+                                subty_path = quote!(Option<#subty_path>);
+                            }
+                            quote! {
+                                #name: #subty_path,
+                            }
+                        })
+                        .collect();
+                    let subty_lifetime = if lifetime.contains(Lifetime::DESER) {
+                        quote!(<'de>)
+                    } else {
+                        quote!()
+                    };
+
+                    let field_getters: TokenStream = properties
+                        .iter()
+                        .map(|(name, subschema, subty)| {
+                            let name = idents::snake(name.as_ref());
+
+                            let ret_ty = (subty.as_de)(ntr);
+                            let copy_ref = if subty.is_copy { quote!() } else { quote!(&) };
+
+                            quote! {
+                                pub fn #name(&self) -> #copy_ref #ret_ty {
+                                    #copy_ref self.#name
+                                }
+                            }
+                        })
+                        .collect();
+
+                    let attrs = schema_attrs(ident.to_string().as_str(), schema);
+                    quote! {
+                        #attrs
+                        pub struct #ident_de #subty_lifetime { #fields }
+
+                        impl #subty_lifetime #ident_de #subty_lifetime {
+                            #field_getters
+                        }
+                    }
+                };
+                quote!(#ser #de)
             }
         }),
-        lifetime: Lifetime::empty(), // TODO
-        as_arg: handle.then_box(|_, path| quote!(#path)),
+
+        is_copy: false,
+        lifetime,
+
+        // TODO only generate arg or response struct on demand
+        as_arg: handle.then_box(move |ident, _| {
+            // TODO fix ident vs path soundness issue
+            let ser_name = idents::pascal(&format!("{} arg", ident));
+            let path = quote!(crate::types::#ser_name);
+            let struct_lifetime = if lifetime.contains(Lifetime::ARG) {
+                quote!(<'ser>)
+            } else {
+                quote!()
+            };
+            quote!(#path #struct_lifetime)
+        }),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
-        as_ser: handle.then_box(|_, path| quote!(#path)),
-        as_de: handle.then_box(|_, path| quote!(#path)),
+        as_ser: handle.then_box(move |ident, _| {
+            // TODO fix ident vs path soundness issue
+            let ser_name = idents::pascal(&format!("{} arg", ident));
+            let path = quote!(crate::types::#ser_name);
+            let struct_lifetime = if lifetime.contains(Lifetime::SER) {
+                quote!(<'ser>)
+            } else {
+                quote!()
+            };
+            quote!(#path #struct_lifetime)
+        }),
+        as_de: handle.then_box(move |ident, _| {
+            // TODO fix ident vs path soundness issue
+            let de_name = idents::pascal(&format!("{} response", ident));
+            let path = quote!(crate::types::#de_name);
+            let struct_lifetime = if lifetime.contains(Lifetime::DESER) {
+                quote!(<'de>)
+            } else {
+                quote!()
+            };
+            quote!(#path #struct_lifetime)
+        }),
         format: Box::new(|_, _| unimplemented!("cannot use object as urlencoded")),
     }
 }
