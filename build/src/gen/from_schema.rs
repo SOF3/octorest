@@ -65,13 +65,13 @@ fn type_enum<'sch>(
 ) -> TypeDef<'sch> {
     let handle = types.alloc_handle(name_comps.into_iter());
 
-    let enum_ = enum_.map(|word| (word, idents::pascal(word)));
+    let enum_: Vec<_> = enum_.map(|word| (word, idents::pascal(word))).collect();
     let variants: Vec<_> = enum_
-        .clone()
+        .iter()
         .map(|(word, v_ident)| quote!(#[serde(rename = #word)] #v_ident))
         .collect();
     let arms: Vec<_> = enum_
-        .clone()
+        .iter()
         .map(|(word, v_ident)| quote!(Self::#v_ident => #word))
         .collect();
 
@@ -91,6 +91,7 @@ fn type_enum<'sch>(
             }
         }),
         is_copy: true,
+        enum_variants: Some(enum_),
         lifetime: Lifetime::empty(),
         as_arg: handle.then_box(|_, path| quote!(#path)),
         arg_to_ser: Box::new(|_, expr| quote!((#expr))),
@@ -104,6 +105,7 @@ fn type_date_time() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
         is_copy: true,
+        enum_variants: None,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(std::time::SystemTime)),
         arg_to_ser: Box::new(|_, expr| quote!(chrono::DateTime::from(#expr))),
@@ -117,6 +119,7 @@ fn type_str<'sch>(s: &'sch schema::StringSchema<'sch>) -> TypeDef<'sch> {
     TypeDef {
         def: Box::new(|_| quote!()),
         is_copy: true,
+        enum_variants: None,
         lifetime: Lifetime::all(),
         as_arg: Box::new(|_| quote!(&'ser str)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -138,6 +141,7 @@ fn type_timestamp() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
         is_copy: true,
+        enum_variants: None,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!()),
         arg_to_ser: Box::new(|_, expr| quote!((#expr - std::time::UNIX_EPOCH).as_secs())),
@@ -151,6 +155,7 @@ fn type_int() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
         is_copy: true,
+        enum_variants: None,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(i64)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -164,6 +169,7 @@ fn from_number(s: &schema::NumberSchema) -> TypeDef<'_> {
     TypeDef {
         def: Box::new(|_| quote!()),
         is_copy: true,
+        enum_variants: None,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(f64)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -177,6 +183,7 @@ fn from_boolean() -> TypeDef<'static> {
     TypeDef {
         def: Box::new(|_| quote!()),
         is_copy: true,
+        enum_variants: None,
         lifetime: Lifetime::empty(),
         as_arg: Box::new(|_| quote!(bool)),
         arg_to_ser: Box::new(|_, expr| quote!(#expr)),
@@ -215,6 +222,7 @@ fn from_array<'sch>(
     TypeDef {
         def: Box::new(|_| quote!()),
         is_copy: false,
+        enum_variants: None,
         lifetime,
         as_arg: Box::new({
             let item = Rc::clone(&item);
@@ -314,11 +322,31 @@ fn from_object<'sch>(
                                 arg_to_ser = quote!(Some(#arg_to_ser));
                             }
 
+                            let enum_setter = match &subty.enum_variants {
+                                Some(vec) => vec
+                                    .iter()
+                                    .map(|(word, ident)| {
+                                        let var_fn_name =
+                                            idents::snake(&format!("{} {}", &fn_name, word));
+                                        let ser_ty = (subty.as_ser)(ntr);
+                                        quote! {
+                                            pub fn #var_fn_name(mut self) -> Self {
+                                                self.#name = #ser_ty::#ident;
+                                                self
+                                            }
+                                        }
+                                    })
+                                    .collect::<TokenStream>(),
+                                None => quote!(),
+                            };
+
                             quote! {
                                 pub fn #fn_name(mut self, value: #arg_ty) -> Self {
                                     self.#name = #arg_to_ser;
                                     self
                                 }
+
+                                #enum_setter
                             }
                         })
                         .collect();
@@ -386,6 +414,7 @@ fn from_object<'sch>(
         }),
 
         is_copy: false,
+        enum_variants: None,
         lifetime,
 
         // TODO only generate arg or response struct on demand

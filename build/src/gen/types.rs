@@ -9,7 +9,6 @@ use super::{NameComponent, NameTree, NameTreeResolve, TreeHandle};
 #[derive(Default, MutGetters)]
 pub struct Types<'t> {
     tree: NameTree<'t>,
-    #[getset(get_mut = "pub")]
     defs: Vec<Rc<TypeDef<'t>>>,
 }
 
@@ -26,15 +25,14 @@ impl<'t> Types<'t> {
         self.defs.len() - 1
     }
 
-    pub fn finalize(self) -> TokenStream {
+    pub fn finalize(self) -> (NameTreeResolve, TokenStream) {
         let Self { tree, defs } = self;
         let ntr = tree.resolve();
 
         let defs = defs.into_iter().map(|def| (def.def)(&ntr));
 
-        quote! {
-            #(#defs)*
-        }
+        let types = quote!(#(#defs)*);
+        (ntr, types)
     }
 }
 
@@ -43,6 +41,9 @@ pub struct TypeDef<'t> {
     pub def: Box<dyn Fn(&NameTreeResolve) -> TokenStream + 't>,
     /// whether the type implements `Copy` (and should use copy getters instead of ref getters)
     pub is_copy: bool,
+    /// if this type is an enum with only discriminants (without values),
+    /// a vector containing the idents.
+    pub enum_variants: Option<Vec<(&'t str, proc_macro2::Ident)>>,
     /// whether the type takes a lifetime
     pub lifetime: Lifetime,
     /// The argument type in builder, using lifetime `'ser` if `self.has_lifetime`
