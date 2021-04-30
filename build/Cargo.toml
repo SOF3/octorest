@@ -17,7 +17,7 @@ name = "octorest_build"
 
 [dependencies]
 bitflags = "1.2.1"
-cfg-if = "0.1.10"
+cfg-if = "1.0.0"
 getset = "0.1.1"
 heck = "0.3.1"
 log = "0.4.11"
